@@ -87,6 +87,8 @@ describe("defineModel", () => {
       ["reads that are not names", { dimensions: [{ kind: "computed", name: "a", reads: [1], compute: () => 1 }] }, "dimension 0 has reads that are not a list of names"],
       ["a compute that is not a function", { dimensions: [{ kind: "computed", name: "a", reads: [], compute: 1 }] }, "dimension 0 has a compute that is not a function"],
       ["a rule that is not well formed", { dimensions: [dimension], rules: [{ requires: { is: ["a", 1, 2] } }] }, "rule 0 is not a well-formed rule"],
+      ["an object as a value", { dimensions: [{ kind: "choice", name: "a", values: [{ nested: true }] }] }, 'dimension "a" has a value of type object, which is not a JSON scalar'],
+      ["a list as a value", { dimensions: [{ kind: "choice", name: "a", values: [[1]] }] }, 'dimension "a" has a value of type array, which is not a JSON scalar'],
     ])("refuses %s", (_, definition, issue) => {
       expect(issuesOfData(definition)).toContain(issue);
     });
