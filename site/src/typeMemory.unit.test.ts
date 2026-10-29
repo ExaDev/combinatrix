@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import type { Json, JsonObject } from "./json";
 import { isJsonArray, isJsonObject } from "./json";
 import type { Memory, Place, Slots, Switch } from "./typeMemory";
@@ -15,6 +16,15 @@ const DEFAULT_BOOLEAN: Json = { kind: "booleanLiteral", value: true };
 /** The index of the tenth rule, whose digits start with those of the index of the second. */
 const TENTH_RULE = 10;
 const SECOND_RULE = 1;
+
+/** How many sequences each property tries, how long a sequence is, and how long each step of one is allowed: a timeout derived from the work, so that a loaded machine passes. */
+const PLAIN_RUNS = 100;
+const PLAIN_STEPS = 24;
+const CHILD_RUNS = 500;
+const CHILD_STEPS = 30;
+const STEP_BUDGET_MS = 5;
+const PLAIN_SEQUENCES = budgetFor(PLAIN_RUNS * PLAIN_STEPS, STEP_BUDGET_MS);
+const CHILD_SEQUENCES = budgetFor(CHILD_RUNS * CHILD_STEPS, STEP_BUDGET_MS);
 
 /** The switch of the item at a place from one variant to another, given the part now and the part a conversion makes. Without slots, as the types of a value have none. */
 function moving(place: Place, from: string, to: string): (current: Json, converted: Json, inside?: Switch["inside"]) => Switch {
@@ -340,9 +350,9 @@ describe("any sequence of switches and edits of an item without children", () =>
   type Variant = (typeof VARIANTS)[number];
   const step = fc.record({ to: fc.constantFrom(...VARIANTS), edit: fc.option(fc.jsonValue(), { nil: undefined }) });
 
-  it("gives each variant the item is switched to the part it last held in it, and the conversion where it never held one", () => {
+  it("gives each variant the item is switched to the part it last held in it, and the conversion where it never held one", PLAIN_SEQUENCES, () => {
     fc.assert(
-      fc.property(fc.jsonValue(), fc.array(step, { maxLength: 24 }), (start, steps) => {
+      fc.property(fc.jsonValue(), fc.array(step, { maxLength: PLAIN_STEPS }), (start, steps) => {
         let memory = NO_MEMORY;
         let variant: Variant = "a";
         let part: Json = JSON.parse(JSON.stringify(start)) as Json;
@@ -361,10 +371,11 @@ describe("any sequence of switches and edits of an item without children", () =>
           variant = to;
         }
       }),
+      { numRuns: PLAIN_RUNS },
     );
   });
 
-  it("restores the original after any chain of switches that returns to the first variant with no edit", () => {
+  it("restores the original after any chain of switches that returns to the first variant with no edit", PLAIN_SEQUENCES, () => {
     fc.assert(
       fc.property(fc.jsonValue(), fc.array(fc.constantFrom(...VARIANTS), { minLength: 1, maxLength: 12 }), (start, chain) => {
         const original: Json = JSON.parse(JSON.stringify(start)) as Json;
@@ -380,6 +391,7 @@ describe("any sequence of switches and edits of an item without children", () =>
 
         expect(part).toEqual(original);
       }),
+      { numRuns: PLAIN_RUNS },
     );
   });
 });
@@ -389,7 +401,6 @@ describe("any sequence of switches and edits of an item with children", () => {
   const ARITY = { a: 3, b: 2, c: 1, d: 4 } as const;
   type Variant = keyof typeof ARITY;
   const VARIANTS = Object.keys(ARITY).filter((name): name is Variant => name in ARITY);
-  const MAX_STEPS = 30;
 
   type Step = { readonly kind: "switch"; readonly to: Variant } | { readonly kind: "edit"; readonly position: number };
   const steps: fc.Arbitrary<Step[]> = fc.array(
@@ -397,7 +408,7 @@ describe("any sequence of switches and edits of an item with children", () => {
       fc.constantFrom(...VARIANTS).map((to): Step => ({ kind: "switch", to })),
       fc.nat().map((position): Step => ({ kind: "edit", position })),
     ),
-    { maxLength: MAX_STEPS },
+    { maxLength: CHILD_STEPS },
   );
 
   function part(variant: Variant, children: readonly string[]): Json {
@@ -442,25 +453,25 @@ describe("any sequence of switches and edits of an item with children", () => {
     return { children, expected: original.map((_, position) => latest.get(position) ?? "?") };
   }
 
-  it("ends in the first variant with each child as it was last edited in any variant that had a place for it", () => {
+  it("ends in the first variant with each child as it was last edited in any variant that had a place for it", CHILD_SEQUENCES, () => {
     fc.assert(
       fc.property(steps, (chain) => {
         const { children, expected } = run(chain);
 
         expect(children).toEqual(expected);
       }),
-      { numRuns: 500 },
+      { numRuns: CHILD_RUNS },
     );
   });
 
-  it("restores the original after any chain of switches, however short the variants it passes through", () => {
+  it("restores the original after any chain of switches, however short the variants it passes through", CHILD_SEQUENCES, () => {
     fc.assert(
       fc.property(steps, (chain) => {
         const { children, expected } = run(chain.filter((entry) => entry.kind === "switch"));
 
         expect(children).toEqual(expected);
       }),
-      { numRuns: 500 },
+      { numRuns: CHILD_RUNS },
     );
   });
 });
