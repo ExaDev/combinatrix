@@ -197,7 +197,7 @@ describe("searchCombinations", () => {
       for (const value of first.values) {
         const fixed = new Map([[first.name, value]]);
         const expected = [...referenceCombinations(model)].filter((record) => record[first.name] === value);
-        expect([...searchCombinations(model, fixed)]).toEqual(expected);
+        expect([...searchCombinations(model, { fixed })]).toEqual(expected);
       }
     }
   });

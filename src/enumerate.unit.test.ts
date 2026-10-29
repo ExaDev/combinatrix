@@ -40,6 +40,12 @@ describe("combinations", () => {
     expect(() => [...combinations(cube, { limit: -1 })]).toThrow(RangeError);
   });
 
+  it("runs to completion with no limit, and a limit equal to the size gives the same result", () => {
+    expect(collect(cube)).toHaveLength(SPACE);
+    expect(collect(cube, {})).toEqual(collect(cube, { limit: SPACE }));
+    expect([...combinations(cube)]).toHaveLength(SPACE);
+  });
+
   it("checks every combination a strategy yields against the model", () => {
     const outside: Strategy = { name: "outside", select: () => [{ d0: 0, d1: 0, d2: 0, d3: SIDE }] };
     expect(() => [...combinations(cube, { strategy: outside })]).toThrow(StrategyError);
@@ -86,6 +92,18 @@ describe("count", () => {
     expect(() => count(cube, { limit: SPACE - 1 })).toThrow(new LimitExceededError(SPACE - 1));
   });
 
+  it("searches to the end with no limit, however it is called", () => {
+    expect(count(cube)).toBe(SPACE);
+    expect(count(cube, {})).toBe(SPACE);
+    expect(count(defineModel({ dimensions: cube.dimensions, constraints: [predicate({ reads: ["d0"], test: () => true })] }))).toBe(SPACE);
+  });
+
+  it("refuses at the same boundary when a limit is given, and validates it", () => {
+    expect(count(cube, { limit: SPACE })).toBe(SPACE);
+    expect(() => count(cube, { limit: SPACE - 1 })).toThrow(new LimitExceededError(SPACE - 1));
+    expect(() => count(cube, { limit: 1.5 })).toThrow(RangeError);
+  });
+
   it("counts an empty solution set as zero, including one emptied by a constraint on no dimension", () => {
     const never: Constraint = { dependencies: [], evaluate: () => "invalid" };
     expect(count(defineModel({ dimensions: cube.dimensions, constraints: [never] }), { limit: 0 })).toBe(0);
@@ -114,6 +132,17 @@ describe("diagnose", () => {
       ],
     });
     expect(() => diagnose(model, { limit: solutions - 1 })).toThrow(LimitExceededError);
+  });
+});
+
+describe("diagnose without a limit", () => {
+  it("searches the whole solution set, and a given limit still refuses at the same boundary", () => {
+    const model = defineModel({ dimensions: [choice("a", ["x", "y", "z"]), choice("b", [1, 2])] });
+    const solutions = 6;
+    expect(diagnose(model)).toEqual({ status: "satisfiable", count: solutions, deadValues: [] });
+    expect(diagnose(model, {})).toEqual(diagnose(model, { limit: solutions }));
+    expect(() => diagnose(model, { limit: solutions - 1 })).toThrow(new LimitExceededError(solutions - 1));
+    expect(() => diagnose(model, { limit: -1 })).toThrow(RangeError);
   });
 });
 
