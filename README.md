@@ -79,7 +79,7 @@ console.log(first?.values);
 */
 ```
 
-A rule removes combinations. This one excludes the Windows combinations, but only when the runtime is `bun` (`requires` states what must hold instead, and `implies` links two conditions). `explain` takes any record and says whether it is in the solution set, and if not, why: `constraint` is the compiled constraint and `rule` is the rule as written.
+A rule removes combinations. This one excludes the Windows combinations, but only when the runtime is `bun` (`requires` states what must hold instead, and `implies` links two conditions). `explain` takes a combination of the model (a misspelt dimension or a value outside a domain does not compile; `explainData` takes untyped data) and says whether it is in the solution set, and if not, why: `constraint` is the compiled constraint and `rule` is the rule as written.
 
 ```ts
 // examples/03-rules.ts
