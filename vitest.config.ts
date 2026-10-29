@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
@@ -8,6 +8,8 @@ export default defineConfig({
     alias: [{ find: /^combinatrix$/, replacement: join(import.meta.dirname, 'src/index.ts') }],
   },
   test: {
+    // The browser tests under e2e/ are Playwright's, run by `pnpm test:e2e`, and a unit run neither needs a browser nor may start one.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     coverage: {
       enabled: true,
       provider: 'v8',

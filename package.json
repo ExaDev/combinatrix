@@ -79,7 +79,8 @@
     "site:dev": "vite --config site/vite.config.ts",
     "site:preview": "vite preview --config site/vite.config.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json && tsc -p site/tsconfig.json && tsc -p site/tsconfig.worker.json"
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json && tsc -p site/tsconfig.json && tsc -p site/tsconfig.worker.json && tsc -p e2e/tsconfig.json"
   },
   "sideEffects": false,
   "type": "module",
