@@ -196,6 +196,39 @@ describe("generated models", () => {
   });
 });
 
+describe("changing the kind of a part", () => {
+  it("keeps a rule's label, when and unless, and its condition between requires and excludes", () => {
+    fc.assert(
+      fc.property(validModelArb, fc.constantFrom<RuleForm>("requires", "excludes", "implies"), (model, form) => {
+        for (const [index, before] of (viewOfModel(model).rules ?? []).entries()) {
+          const after = (viewOfModel(setRuleForm(model, index, form)).rules ?? [])[index];
+          if (before.kind !== "rule" || after?.kind !== "rule") throw new Error("the generated rules are all structured");
+
+          expect({ name: after.name, when: after.when, unless: after.unless }).toEqual({ name: before.name, when: before.when, unless: before.unless });
+          expect(after.body.form).toBe(form);
+          if (before.body.form !== "implies" && after.body.form !== "implies") expect(after.body.condition).toEqual(before.body.condition);
+        }
+      }),
+      { numRuns: RUNS, seed: SEED },
+    );
+  });
+
+  it("keeps a dimension's name, activity condition and values", () => {
+    fc.assert(
+      fc.property(validModelArb, fc.constantFrom<DimensionKind>("choice", "first-valid"), (model, kind) => {
+        for (const [index, before] of viewOfModel(model).dimensions.entries()) {
+          const after = viewOfModel(setDimensionKind(model, index, kind)).dimensions[index];
+          if (before.kind !== "dimension" || after?.kind !== "dimension") throw new Error("the generated dimensions are all structured");
+
+          expect({ name: after.name, activeWhen: after.activeWhen, values: after.values }).toEqual({ name: before.name, activeWhen: before.activeWhen, values: before.values });
+          expect(after.dimensionKind).toBe(kind);
+        }
+      }),
+      { numRuns: RUNS, seed: SEED },
+    );
+  });
+});
+
 describe("constructs the form cannot show", () => {
   /** A model with a dimension, a rule and a top-level key, each of arbitrary JSON, among the parts the form does edit. */
   const strangeModelArb: fc.Arbitrary<JsonObject> = fc.tuple(jsonArb, jsonArb, jsonArb, jsonArb).map(([dimension, rule, extra, node]) => ({
