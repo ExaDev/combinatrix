@@ -8,6 +8,7 @@ import { domainOf, possibleKeys } from "./dimension";
 import { ModelError } from "./errors";
 import type { Rule, TypedRule } from "./rule";
 import { ruleConditions, ruleConstraint } from "./rule";
+import { modelShapeIssues } from "./shape";
 import type { Value } from "./value";
 import { describeValue, isScalar, valueKey } from "./value";
 
@@ -45,9 +46,12 @@ export interface Model<T extends Readonly<Record<string, Value>>> extends ModelP
 export type CombinationOf<M> = M extends Model<infer T> ? T : never;
 
 /**
- * Checks a model definition and returns the model. Throws `ModelError` listing every defect: a duplicated or empty name, an empty domain, a value that is not a JSON scalar or appears twice, a reference to an unknown or later dimension, a rule comparing a dimension against a value it cannot take (unset included), or a constraint on a first-valid dimension that mentions a dimension declared after it.
+ * Checks a model definition and returns the model. Throws `ModelError` listing every defect: a definition, dimension or rule that is not well formed (an unknown key, a wrong type, a malformed condition), a duplicated or empty name, an empty domain, a value that is not a JSON scalar or appears twice, a reference to an unknown or later dimension, a rule comparing a dimension against a value it cannot take (unset included), or a constraint on a first-valid dimension that mentions a dimension declared after it.
  */
 export function defineModel<const Ds extends readonly Dimension[], const Rs extends readonly TypedRule<TupleOf<Ds>>[] = readonly TypedRule<TupleOf<Ds>>[], const Cs extends readonly Constraint[] = readonly Constraint[]>(definition: ModelDefinition<Ds, Rs, Cs>): Model<TupleOf<Ds>> {
+  const shapeIssues = modelShapeIssues(definition);
+  if (shapeIssues.length > 0) throw new ModelError(shapeIssues);
+
   const { dimensions } = definition;
   const rules: readonly Rule[] = definition.rules ?? [];
   const possible = new Map(dimensions.map((dimension) => [dimension.name, possibleKeys(dimension)]));
