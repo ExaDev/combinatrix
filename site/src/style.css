@@ -1,0 +1,307 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f4f6fa;
+  --text: #16191f;
+  --muted: #566070;
+  --border: #c5ccd8;
+  --accent: #1d5fc4;
+  --accent-text: #ffffff;
+  --problem: #a3261c;
+  --problem-bg: #fdecea;
+  --ok: #1d6b34;
+  --gutter: 16px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151a;
+    --surface: #1b2029;
+    --text: #e6e9ef;
+    --muted: #9aa5b6;
+    --border: #3a4352;
+    --accent: #6ea4f4;
+    --accent-text: #0b1220;
+    --problem: #ff9b92;
+    --problem-bg: #3a1b19;
+    --ok: #7fd49a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  padding: 0 var(--gutter) 48px;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.page-header,
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 24px 0 8px;
+  font-family: var(--mono);
+  font-size: 1.75rem;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+section {
+  margin: 32px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+a {
+  color: var(--accent);
+}
+
+p {
+  margin: 8px 0;
+}
+
+.hint,
+.muted {
+  color: var(--muted);
+}
+
+label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+textarea,
+input[type="text"],
+input[type="number"],
+select {
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+input[type="number"] {
+  width: 8rem;
+}
+
+#link {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+button,
+.file-button {
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.file-button {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  font-size: 1rem;
+}
+
+.file-button:focus-within {
+  outline: 3px solid var(--text);
+  outline-offset: 2px;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+#cancel,
+.saved-list button {
+  background: transparent;
+  color: var(--accent);
+}
+
+button:disabled {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 3px solid var(--text);
+  outline-offset: 2px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+.busy-row {
+  align-items: center;
+}
+
+.busy-row p {
+  margin: 0;
+}
+
+.operation {
+  margin: 20px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.result {
+  margin-top: 8px;
+}
+
+.result:empty {
+  display: none;
+}
+
+.problem {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--problem-bg);
+  color: var(--problem);
+}
+
+.valid {
+  color: var(--ok);
+}
+
+.messages {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.messages .problem {
+  background: none;
+  padding: 0;
+  white-space: pre-wrap;
+}
+
+.pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pickers legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.saved-list {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.saved-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.saved-list .name {
+  flex: 1 1 10rem;
+  overflow-wrap: anywhere;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+caption {
+  padding: 8px;
+  text-align: left;
+  color: var(--muted);
+}
+
+th,
+td {
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+td,
+.mono {
+  font-family: var(--mono);
+}
+
+.unset {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.id {
+  color: var(--muted);
+}
