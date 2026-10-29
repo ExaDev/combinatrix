@@ -11,6 +11,8 @@ export type { ExactRecord, Explanation, Reason } from "./explain";
 export { isCondition, isRule, parseRules } from "./guards";
 export { defineModel } from "./model";
 export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model";
+export { at, indexOf, indexOfData, samples } from "./rank";
+export type { RandomIndex, SampleOptions } from "./rank";
 export type { Rule, TypedRule } from "./rule";
 export { full } from "./strategy";
 export type { Strategy, StrategyContext } from "./strategy";

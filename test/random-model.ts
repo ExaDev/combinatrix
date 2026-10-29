@@ -4,8 +4,10 @@ import { choice, computed, defineModel, firstValid, isNonEmpty, predicate } from
 /** How many generated models each property is checked against. */
 const MODELS = 400;
 const SEED = 20_261_029;
-const VALUE_POOL: readonly Value[] = [undefined, null, "x", "y", 0, 1, true, false];
-const MAX_FREE_DIMENSIONS = 4;
+/** Every value a generated domain draws from, unset included. */
+export const VALUE_POOL: readonly Value[] = [undefined, null, "x", "y", 0, 1, true, false];
+/** The most free dimensions a generated model has. */
+export const MAX_FREE_DIMENSIONS = 4;
 const MAX_DOMAIN = 3;
 const MAX_RULES = 4;
 const MAX_DEPTH = 2;

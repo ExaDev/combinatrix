@@ -42,7 +42,7 @@ export interface CombinationsOptions extends LimitOptions, CancellationOptions {
 export function* combinations<T extends Readonly<Record<string, Value>>>(model: Model<T>, options: CombinationsOptions = {}): Generator<Combination<T>> {
   const strategy = options.strategy ?? full;
   const { limit, signal } = options;
-  if (limit !== undefined) checkLimit(limit);
+  if (limit !== undefined) checkNonNegativeInteger("limit", limit);
   signal?.throwIfAborted();
 
   let produced = 0;
@@ -83,7 +83,7 @@ export function count(model: ModelParts, options: LimitOptions & CancellationOpt
   const { limit, signal } = options;
   if (limit === undefined) return countSearch(model, undefined, signal);
 
-  checkLimit(limit);
+  checkNonNegativeInteger("limit", limit);
   const total = countSearch(model, limit, signal);
   if (total === undefined) throw new LimitExceededError(limit);
 
@@ -104,7 +104,7 @@ export type Diagnosis = { readonly status: "empty" } | { readonly status: "satis
  */
 export function diagnose(model: ModelParts, options: LimitOptions & CancellationOptions = {}): Diagnosis {
   const { limit, signal } = options;
-  if (limit !== undefined) checkLimit(limit);
+  if (limit !== undefined) checkNonNegativeInteger("limit", limit);
   const seen = model.dimensions.map((dimension) => ({ dimension, keys: new Set<string>() }));
   let total = 0;
   for (const record of searchCombinations(model, { signal })) {
@@ -124,6 +124,7 @@ export function diagnose(model: ModelParts, options: LimitOptions & Cancellation
   return { status: "satisfiable", count: total, deadValues };
 }
 
-function checkLimit(limit: number): void {
-  if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError(`limit must be a non-negative integer, not ${String(limit)}`);
+/** Throws `RangeError`, naming the option by `label`, unless `value` is a non-negative safe integer. */
+export function checkNonNegativeInteger(label: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${label} must be a non-negative integer, not ${String(value)}`);
 }
