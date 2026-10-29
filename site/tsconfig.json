@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "paths": { "combinatrix": ["../src/index.ts"] },
+    "types": []
+  },
+  "exclude": ["src/worker.ts"],
+  "extends": "../tsconfig.json",
+  "include": ["src"]
+}

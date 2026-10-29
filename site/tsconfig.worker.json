@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2024", "WebWorker"],
+    "paths": { "combinatrix": ["../src/index.ts"] },
+    "types": []
+  },
+  "extends": "../tsconfig.json",
+  "include": ["src/worker.ts"]
+}

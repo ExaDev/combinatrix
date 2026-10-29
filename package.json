@@ -74,7 +74,7 @@
     "prepublishOnly": "pnpm run lint:check && pnpm run typecheck && pnpm run build && pnpm run test && publint && attw --pack --profile esm-only",
     "release": "semantic-release",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p site/tsconfig.json && tsc -p site/tsconfig.worker.json"
   },
   "sideEffects": false,
   "type": "module",
