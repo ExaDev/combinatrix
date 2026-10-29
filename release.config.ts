@@ -9,6 +9,11 @@ interface CommitType {
   readonly section: string;
 }
 
+type ReleaseRule =
+  | { readonly breaking: true; readonly release: ReleaseLevel }
+  | { readonly type: string; readonly release: ReleaseLevel }
+  | { readonly scope: string; readonly release: false };
+
 /**
  * Single source of truth for the conventional-commit types this project uses. commitlint's allowed type-enum (commitlint.config.ts imports this) and commit-analyzer's releaseRules below both derive from it, so a type cannot trigger a release without also being accepted by commit-msg validation, or the reverse. Every type here is also listed in the release notes, so a release is never cut by a commit that its own notes omit.
  */
@@ -27,6 +32,20 @@ export const commitTypes: readonly CommitType[] = [
 ];
 
 /**
+ * Commit scopes for parts of the repository that are not in the published package (the `files` of package.json), so a commit scoped to one never cuts a release however its type would otherwise. Every type in `commitTypes` releases, so a scope is the only way to say that a change does not reach the package.
+ */
+export const unreleasedScopes: readonly string[] = ['site'];
+
+/**
+ * The rules commit-analyzer applies, in order: a breaking change is major, each type releases at its level, and a commit in an unreleased scope does not release. commit-analyzer walks the rules a commit matches in order and a later `false` replaces any release type found before it, while an earlier `false` is replaced by a later release type, so the scope rules must come last to take precedence over the type rules. A breaking change is the exception: it ends the analysis at major, so one marked breaking releases whatever its scope, which is right, since it says the package breaks.
+ */
+export const releaseRules: readonly ReleaseRule[] = [
+  { breaking: true, release: 'major' },
+  ...commitTypes.map((t) => ({ type: t.type, release: t.release })),
+  ...unreleasedScopes.map((scope) => ({ scope, release: false as const })),
+];
+
+/**
  * Runs on `main`. Analyses commits since the last tag, bumps the version, publishes to npmjs.org through trusted OIDC publishing (no stored token, see .github/workflows/ci.yml), creates a versioned tag and GitHub Release with generated notes, and commits CHANGELOG.md and package.json back to main.
  */
 const config: Options = {
@@ -38,7 +57,7 @@ const config: Options = {
       '@semantic-release/commit-analyzer',
       {
         preset: 'conventionalcommits',
-        releaseRules: [{ breaking: true, release: 'major' }, ...commitTypes.map((t) => ({ type: t.type, release: t.release }))],
+        releaseRules,
       },
     ],
     [
