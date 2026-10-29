@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Dimension, ModelData } from "../src/index";
 import { modelShapeIssues } from "../src/shape";
 import { choice, collect, count, defineModel, firstValid, isModelData, isNonEmpty, ModelError, parseModel } from "../src/index";
-import { accepts, definesModel, expectAgreement, model, nearMiss, RUNS, SEED } from "./json-schema.fixtures";
+import { accepts, definesModel, expectAgreement, model, nearMiss, ONE_PROPERTY, RUNS, SEED, TWO_PROPERTIES } from "./json-schema.fixtures";
 
 /**
  * `isModelData` and `parseModel` against the published JSON Schema and against `defineModel`, over the seeded models and near misses the schema suite draws. The guard must agree with the schema exactly, and the parser must accept exactly what the schema accepts and `defineModel` accepts, building the model `defineModel` builds from the same definition written in code.
@@ -33,11 +33,11 @@ function inCode(data: ModelData["dimensions"][number]): Dimension {
 }
 
 describe("isModelData", () => {
-  it("agrees with the JSON Schema on every model and near miss", () => {
+  it("agrees with the JSON Schema on every model and near miss", TWO_PROPERTIES, () => {
     expectAgreement(model, isModelData, accepts("Model"));
   });
 
-  it("accepts every value the schema's Model accepts, and every value it accepts the schema's root accepts", () => {
+  it("accepts every value the schema's Model accepts, and every value it accepts the schema's root accepts", ONE_PROPERTY, () => {
     const validModel = accepts("Model");
     const validRoot = accepts(undefined);
     const anything = fc.oneof(model, nearMiss(model).map(({ value }) => value), fc.jsonValue());
@@ -61,7 +61,7 @@ describe("isModelData", () => {
     expect(refused.map((value) => [isModelData(value), validModel(value)])).toEqual(refused.map(() => [false, false]));
   });
 
-  it("fails the agreement for a guard with a rule weakened, so that agreement is not by construction", () => {
+  it("fails the agreement for a guard with a rule weakened, so that agreement is not by construction", TWO_PROPERTIES, () => {
     // `modelShapeIssues` is the shape check `defineModel` runs first: the same guard without the empty-domain, duplicate-value, unset-value, computed and constraints rules.
     const weakened = (value: unknown): boolean => modelShapeIssues(value).length === 0;
     expect(() => {
@@ -71,11 +71,11 @@ describe("isModelData", () => {
 });
 
 describe("parseModel", () => {
-  it("accepts exactly what the schema accepts and `defineModel` accepts, and refuses the rest with a `ModelError`", () => {
+  it("accepts exactly what the schema accepts and `defineModel` accepts, and refuses the rest with a `ModelError`", TWO_PROPERTIES, () => {
     expectAgreement(model, parses, accepts("Model"), definesModel);
   });
 
-  it("enumerates the same combinations, in the same order, as the model written in code", () => {
+  it("enumerates the same combinations, in the same order, as the model written in code", ONE_PROPERTY, () => {
     fc.assert(
       fc.property(model, (data) => {
         if (!isModelData(data)) throw new Error("a generated model is model data");
@@ -91,7 +91,7 @@ describe("parseModel", () => {
     );
   });
 
-  it("is refused with every issue for data of the wrong shape, as the guard refuses it", () => {
+  it("is refused with every issue for data of the wrong shape, as the guard refuses it", ONE_PROPERTY, () => {
     fc.assert(
       fc.property(nearMiss(model), ({ value }) => {
         if (isModelData(value)) return;

@@ -5,6 +5,7 @@ import { expect } from "vitest";
 
 import { and, or } from "trilean";
 
+import { budgetFor } from "../test/budget";
 import type { Comparable, Condition } from "../src/condition";
 import { allOf, anyOf, defineModel, is, isSet, isUnset, ModelError, not, oneOf } from "../src/index";
 import type { Rule } from "../src/rule";
@@ -20,6 +21,12 @@ import { buildJsonSchema, PACKAGE_VERSION } from "./json-schema";
 export const SEED = 20_261_029;
 /** Runs per property: enough for every mutation to meet every node kind of a condition and every form of a rule many times over. */
 export const RUNS = 600;
+/** The time one run of a property may take, in milliseconds: at least two hundred times what the heaviest of them takes on an idle machine, so a machine under heavy load still passes and only a property that stops terminating fails. */
+const RUN_BUDGET_MS = 150;
+/** The options of a test that checks one property over `RUNS` runs. */
+export const ONE_PROPERTY = budgetFor(RUNS, RUN_BUDGET_MS);
+/** The options of a test that checks two properties over `RUNS` runs each, as `expectAgreement` does. */
+export const TWO_PROPERTIES = budgetFor(2 * RUNS, RUN_BUDGET_MS);
 
 export const schema = buildJsonSchema(PACKAGE_VERSION);
 const ajv = new Ajv2020({ strict: true, allowUnionTypes: true });
