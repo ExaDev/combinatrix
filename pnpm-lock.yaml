@@ -167,8 +167,8 @@ importers:
   .:
     dependencies:
       trilean:
-        specifier: 1.11.1
-        version: 1.11.1
+        specifier: 1.13.0
+        version: 1.13.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 0.18.5
@@ -2594,8 +2594,8 @@ packages:
     resolution: {integrity: sha512-SGsS1IUYIuy7i6c8d5BItYqNpjdbcyP+TBbEE983V6bGGujVo7+GTiVeZkLo5T3Dh7dXMk4hIG5awgPM/Zjrlg==}
     engines: {node: '>=20'}
 
-  trilean@1.11.1:
-    resolution: {integrity: sha512-hWwxFZLaM1OeJv8e/9R+FwnsJPfsWss01Kvg+kZqADFOtvaCVBh2dE4ZHSq8nDsUWvNi+WgcpTmP0xauvXQdcg==}
+  trilean@1.13.0:
+    resolution: {integrity: sha512-3Fi6s3bfq/PpgQCIkbhRdxf00q/ur8tQ1LZIslMxou+1PrGiCPPBeNx5VpVdbvm38FVDQg9hupd4pRGz4+KH/w==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -5232,7 +5232,7 @@ snapshots:
 
   trilean-regex@1.0.16: {}
 
-  trilean@1.11.1:
+  trilean@1.13.0:
     dependencies:
       trilean-regex: 1.0.16
       zod: 4.6.7
