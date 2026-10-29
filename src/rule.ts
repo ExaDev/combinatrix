@@ -1,30 +1,35 @@
-import type { Condition, Truth } from "./condition";
+import type { Condition, Truth, TypedCondition } from "./condition";
 import { conditionDependencies, conjunction, evaluateCondition, implication, negation } from "./condition";
 import type { Constraint } from "./constraint";
 import { verdictOf } from "./constraint";
-import type { PartialAssignment } from "./value";
+import type { PartialAssignment, Value } from "./value";
 
-/** The guards and label every rule form shares. */
-interface RuleScope<N extends string> {
+/** The guards and label every rule form shares, over conditions of type `C`. */
+interface RuleScope<C> {
   /** The rule applies only where this condition holds. */
-  readonly when?: Condition<N>;
+  readonly when?: C;
   /** The rule does not apply where this condition holds. */
-  readonly unless?: Condition<N>;
+  readonly unless?: C;
   /** A label for diagnostics. */
   readonly name?: string;
 }
 
+/** The three rule forms over conditions of type `C`. */
+type RuleOver<C> = (RuleScope<C> & { readonly requires: C }) | (RuleScope<C> & { readonly excludes: C }) | (RuleScope<C> & { readonly implies: readonly [C, C] });
+
 /**
- * A declarative constraint, as plain JSON-shaped data. Exactly one of the three forms, each optionally scoped by `when` and `unless`:
+ * A declarative constraint, as plain JSON-shaped data with any string as a dimension name: the form a rule read from JSON has. Exactly one of the three forms, each optionally scoped by `when` and `unless`:
  *
  * - `{ requires: condition }`: every combination in scope satisfies the condition.
  * - `{ excludes: condition }`: no combination in scope satisfies the condition.
  * - `{ implies: [antecedent, consequent] }`: every combination in scope that satisfies the antecedent satisfies the consequent.
+ *
+ * `isRule` checks data against this shape and `parseRules` checks it against a model's dimensions too. A rule written in code is checked at compile time as a `TypedRule` instead.
  */
-export type Rule<N extends string = string> =
-  | (RuleScope<N> & { readonly requires: Condition<N> })
-  | (RuleScope<N> & { readonly excludes: Condition<N> })
-  | (RuleScope<N> & { readonly implies: readonly [Condition<N>, Condition<N>] });
+export type Rule = RuleOver<Condition>;
+
+/** A rule whose every condition is a `TypedCondition<T>`, so its dimension names and the values it compares are checked against the dimensions at compile time. `T` is the type of one combination. A typed rule is a `Rule`. */
+export type TypedRule<T extends Readonly<Record<string, Value>>> = RuleOver<TypedCondition<T>>;
 
 /** Whether a rule holds, with Kleene logic: `in scope implies body`, where the scope is `when and not unless`. */
 export function evaluateRule(rule: Rule, assignment: PartialAssignment): Truth {

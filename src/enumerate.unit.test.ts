@@ -113,7 +113,7 @@ describe("count", () => {
 
 describe("diagnose", () => {
   it("reports an empty solution set distinctly", () => {
-    const model = defineModel({ dimensions: [choice("a", [1, 2])], rules: [{ requires: { unset: "a" } }] });
+    const model = defineModel({ dimensions: [choice("a", [1, 2])], rules: [{ excludes: { set: "a" } }] });
     expect(diagnose(model, { limit: 1 })).toEqual({ status: "empty" });
   });
 

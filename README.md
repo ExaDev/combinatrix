@@ -333,7 +333,9 @@ A condition is JSON-shaped data:
 | `{ unset: dimension }` | the dimension is unset |
 | `{ all: [...] }`, `{ any: [...] }`, `{ not: condition }` | conjunction, disjunction, negation |
 
-A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`. Rules and conditions are evaluated with Kleene's three-valued logic, so a test on an unassigned dimension is unknown and an `any` with one true operand is true whatever the others are. `isRule(value)` and `isCondition(value)` check data read from JSON before it is passed to `defineModel`.
+A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`. Rules and conditions are evaluated with Kleene's three-valued logic, so a test on an unassigned dimension is unknown and an `any` with one true operand is true whatever the others are. `{ unset: dimension }` is refused for a dimension that can never be unset.
+
+Rules and conditions written in code are typed (`TypedRule<T>`, `TypedCondition<T>`, where `T` is the combination type) and checked against the dimensions at compile time: an unknown dimension, a value outside the named dimension's domain, or `unset` on a dimension whose type has no `undefined` does not compile. Rules that arrive as data go through `parseRules(dimensions, data)`, which checks them at runtime, throws `ModelError` listing every defect and returns them typed for `defineModel`; `isRule(value)` and `isCondition(value)` check only the shape. `defineModel` checks every rule again at runtime, since data can bypass the types.
 
 ### Models
 
