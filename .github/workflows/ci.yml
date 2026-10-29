@@ -192,7 +192,7 @@ jobs:
         run: |
           cat > check.mjs <<'EOF'
           import assert from 'node:assert/strict';
-          import { choice, collect, count, defineModel, explain, firstValid, LimitExceededError } from 'combinatrix';
+          import { choice, collect, count, coveringArray, defineModel, explain, firstValid, isCoveringArray, LimitExceededError } from 'combinatrix';
           import schema from 'combinatrix/schemas/combinatrix.schema.json' with { type: 'json' };
 
           const model = defineModel({
@@ -208,6 +208,8 @@ jobs:
           assert.equal(count(model, { limit: 2 }), 2);
           assert.throws(() => count(model, { limit: 1 }), LimitExceededError);
           assert.equal(explain(model, { feature: 'beta', channel: 'stable' }).valid, false);
+          const covering = collect(model, { strategy: coveringArray({ strength: 2 }) }).map((combination) => combination.values);
+          assert.equal(isCoveringArray(covering, model, { strength: 2, limit: 2 }), true);
           assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
           assert.deepEqual(Object.keys(schema.$defs).sort(), ['ChoiceDimension', 'Condition', 'FirstValidDimension', 'Model', 'Rule', 'Rules', 'Scalar']);
           EOF
@@ -234,7 +236,7 @@ jobs:
           JSON
           cat > check.ts <<'TS'
           import type { AbortSignalLike, CombinationOf, Strategy } from 'combinatrix';
-          import { choice, collect, count, defineModel, diagnose, explain, LimitExceededError } from 'combinatrix';
+          import { choice, collect, count, coveringArray, defineModel, diagnose, explain, isCoveringArray, LimitExceededError } from 'combinatrix';
 
           const model = defineModel({
             dimensions: [choice('os', ['linux', 'macos']), choice('arch', ['x64', 'arm64'])],
@@ -257,7 +259,9 @@ jobs:
           const diagnosis = diagnose(model);
           const dead: string[] = diagnosis.status === 'empty' ? [] : diagnosis.deadValues.map(({ dimension }) => dimension);
           const bound: string = new LimitExceededError(1, 'rows').bound;
-          export { bound, dead, named, rows, total };
+          const covering: Strategy = coveringArray({ strength: 2, limit: 8 });
+          const covered: boolean = isCoveringArray(collect(model, { strategy: covering }).map(({ values }) => values), model, { strength: 2, limit: 8 });
+          export { bound, covered, dead, named, rows, total };
           TS
           "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json
 
