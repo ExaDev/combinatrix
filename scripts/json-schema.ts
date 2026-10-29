@@ -1,34 +1,48 @@
 import { z } from "zod";
 
 import pkg from "../package.json";
-import type { Condition } from "../src/condition";
-import type { Scalar } from "../src/value";
 
 /**
- * The Zod definitions of the library's serialisable data, from which `buildJsonSchema` derives the published JSON Schema. Zod is a development dependency used only for that derivation: the package validates at runtime with the hand-written guards in `src/guards.ts`, and `scripts/json-schema.unit.test.ts` proves the two accept and refuse the same data. `ScalarSchema` and `ConditionSchema` are annotated with the library types they describe, so the compiler checks that those agree on shape; the optional keys of rules and dimensions cannot be, since Zod types an optional key as `T | undefined` and the library forbids that under `exactOptionalPropertyTypes`, so the property test is what holds them to the guards.
+ * The Zod definitions of the library's serialisable data, from which `buildJsonSchema` derives the published JSON Schema. Zod is a development dependency used only for that derivation: the package validates at runtime with the hand-written guards in `src/guards.ts`, and `scripts/json-schema.unit.test.ts` proves the two accept and refuse the same data. `scripts/json-schema.types.unit.test.ts` proves at compile time that what each schema infers and the library type it describes accept the same data.
  *
  * Uniqueness of a domain's values (`uniqueItems`) is stated as schema metadata because Zod has no uniqueness constraint; the JSON Schema is the artefact validated against, never a Zod parse.
  */
 
 /** A JSON value a dimension can take: a string, a finite number, a boolean or null. JSON cannot carry a non-finite number, so `number` here is `Scalar`'s number exactly. */
-export const ScalarSchema: z.ZodType<Scalar> = z.union([z.string(), z.number(), z.boolean(), z.null()]).meta({
+export const ScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]).meta({
   id: "Scalar",
   description: "A value a dimension can take that survives a JSON round trip unchanged: a string, a number, a boolean or null.",
 });
 
-/** A condition over dimension values: one of seven forms, each an object with exactly one key. */
-export const ConditionSchema: z.ZodType<Condition> = z
-  .lazy(() =>
-    z.union([
-      z.strictObject({ is: z.tuple([z.string(), ScalarSchema]) }).describe("The dimension, named first, is set to the value, given second."),
-      z.strictObject({ in: z.tuple([z.string(), z.array(ScalarSchema)]) }).describe("The dimension, named first, is set to one of the values, given second as a list."),
-      z.strictObject({ unset: z.string() }).describe("The named dimension is unset."),
-      z.strictObject({ set: z.string() }).describe("The named dimension is set to any value."),
-      z.strictObject({ all: z.array(ConditionSchema) }).describe("Every condition in the list holds. An empty list holds."),
-      z.strictObject({ any: z.array(ConditionSchema) }).describe("At least one condition in the list holds. An empty list does not hold."),
-      z.strictObject({ not: ConditionSchema }).describe("The condition does not hold."),
-    ]),
-  )
+/** A condition over dimension values: one of seven forms, each an object with exactly one key. The combinators refer back to the schema through getters, which Zod resolves lazily and TypeScript infers without an annotation, so `z.infer` of it is the type the schema really describes. */
+export const ConditionSchema = z
+  .union([
+    z.strictObject({ is: z.tuple([z.string(), ScalarSchema]) }).describe("The dimension, named first, is set to the value, given second."),
+    z.strictObject({ in: z.tuple([z.string(), z.array(ScalarSchema)]) }).describe("The dimension, named first, is set to one of the values, given second as a list."),
+    z.strictObject({ unset: z.string() }).describe("The named dimension is unset."),
+    z.strictObject({ set: z.string() }).describe("The named dimension is set to any value."),
+    z
+      .strictObject({
+        get all() {
+          return z.array(ConditionSchema);
+        },
+      })
+      .describe("Every condition in the list holds. An empty list holds."),
+    z
+      .strictObject({
+        get any() {
+          return z.array(ConditionSchema);
+        },
+      })
+      .describe("At least one condition in the list holds. An empty list does not hold."),
+    z
+      .strictObject({
+        get not() {
+          return ConditionSchema;
+        },
+      })
+      .describe("The condition does not hold."),
+  ])
   .meta({
     id: "Condition",
     description: "A condition over dimension values, evaluated with Kleene's strong three-valued logic: a test on a dimension not yet assigned is unknown. Dimension names and values are checked against a model's dimensions by the model, not by this schema.",
