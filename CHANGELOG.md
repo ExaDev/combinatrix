@@ -1,5 +1,13 @@
 ## [1.0.1](https://github.com/ExaDev/combinatrix/compare/v1.0.0...v1.0.1) (2026-10-29)
 
+### Documentation
+
+* explain the library with a progression of examples that are tested ([136811d](https://github.com/ExaDev/combinatrix/commit/136811dc89bf3e97b2098587d5e686aa5eba0223))
+
+### Tests
+
+* resolve the package name to its source in tests and typechecking ([4dd37f6](https://github.com/ExaDev/combinatrix/commit/4dd37f630f5d60f1daa5cf3024b9ee0a5ea5b9f4))
+
 # 1.0.0 (2026-10-29)
 
 
