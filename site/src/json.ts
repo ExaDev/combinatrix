@@ -79,6 +79,40 @@ export function setIn(root: Json, path: readonly JsonStep[], replacement: Json):
   return updateIn(root, path, () => replacement);
 }
 
+/** Whether two values are the same JSON: equal scalars, arrays of the same items in order, and objects of the same entries whatever their order. An absent value is the same as an absent value only. */
+export function sameJson(left: Json | undefined, right: Json | undefined): boolean {
+  if (left === right) return true;
+  if (left === undefined || right === undefined) return false;
+  if (isJsonArray(left) || isJsonArray(right)) return isJsonArray(left) && isJsonArray(right) && left.length === right.length && left.every((item, position) => sameJson(item, right[position]));
+  if (!isJsonObject(left) || !isJsonObject(right)) return false;
+  const keys = Object.keys(left);
+
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
+}
+
+/**
+ * The value with the one at `path` replaced, or, when `replacement` is `undefined`, with the last step's entry of its object removed: how a part that may be absent (an optional key) is put back. The path leads to an existing place, except that an entry of an object may be absent. The empty path replaces the whole value, which cannot be absent.
+ */
+export function putIn(root: Json, path: readonly JsonStep[], replacement: Json | undefined): Json {
+  const last = path.at(-1);
+  if (last === undefined) {
+    if (replacement === undefined) throw new Error("the whole value cannot be absent");
+
+    return replacement;
+  }
+
+  return updateIn(root, path.slice(0, -1), (parent) => {
+    if (typeof last === "number") {
+      if (replacement === undefined || !isJsonArray(parent) || last < 0 || last >= parent.length) throw new Error(`the path leaves the value: no position ${String(last)}`);
+
+      return parent.with(last, replacement);
+    }
+    if (!isJsonObject(parent)) throw new Error(`expected an object at ${path.slice(0, -1).join(".")}`);
+
+    return replacement === undefined ? omit(parent, last) : { ...parent, [last]: replacement };
+  });
+}
+
 /** The object at a path, which the caller knows to be one. Throws otherwise. */
 export function objectAt(root: Json, path: readonly JsonStep[]): JsonObject {
   const found = getIn(root, path);
