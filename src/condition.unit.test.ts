@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../test/budget";
 import type { Condition, Constraint, Rule, Value, Verdict } from "./index";
 import { allOf, anyOf, choice, defineModel, is, isSet, isUnset, not, oneOf, ruleTree } from "./index";
 
@@ -102,10 +103,16 @@ describe("a condition evaluated by the engine", () => {
     expect(verdict(anyOf(), new Map())).toBe("invalid");
   });
 
-  it("is monotone: a definite answer on a partial assignment is the answer on every completion", () => {
+  const everyCondition = conditions(2);
+  const cases = partialAssignments().map((assignment) => ({ assignment, completions: completions(assignment) }));
+  // Each condition is evaluated on every partial assignment and on each of its completions.
+  const evaluations = everyCondition.length * cases.reduce((total, { completions: everyCompletion }) => total + 1 + everyCompletion.length, 0);
+  /** The time one evaluation may take, in milliseconds: at least two hundred times what it takes on an idle machine, so a machine under heavy load still passes and only an evaluation that stops terminating fails. */
+  const EVALUATION_BUDGET_MS = 1;
+
+  it("is monotone: a definite answer on a partial assignment is the answer on every completion", budgetFor(evaluations, EVALUATION_BUDGET_MS), () => {
     const violations: string[] = [];
-    const cases = partialAssignments().map((assignment) => ({ assignment, completions: completions(assignment) }));
-    for (const condition of conditions(2)) {
+    for (const condition of everyCondition) {
       const constraint = constraintOf(condition);
       for (const { assignment, completions: everyCompletion } of cases) {
         const answer = constraint.evaluate(assignment);

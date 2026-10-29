@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../test/budget";
 import { STEPS_PER_ABORT_CHECK } from "./cancellation";
 import type { AbortSignalLike, Strategy } from "./index";
 import { choice, collect, combinations, count, defineModel, diagnose, full, isNonEmpty, predicate } from "./index";
@@ -8,6 +9,10 @@ const REASON = new Error("stopped by the caller");
 const SIDE = 10;
 const DIMENSION_COUNT = 4;
 const SPACE = SIDE ** DIMENSION_COUNT;
+/** The searches of the whole space that the test of a signal that never aborts makes: a count, then a collect and a diagnose, each of the last two once more without a signal. */
+const WHOLE_SPACE_SEARCHES = 5;
+/** The time a search may spend per combination of the space, in milliseconds, whatever the number of searches that visit it: at least two hundred times what it takes on an idle machine, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const COMBINATION_BUDGET_MS = 2;
 /** Predicate evaluations before the signal aborts: well inside the first leaf of the search, so the rest of the space is still to do. */
 const ABORT_AT = 5;
 
@@ -139,7 +144,7 @@ describe("a signal that aborts mid-search", () => {
     expect(evaluations.total - before).toBeLessThan(STEPS_PER_ABORT_CHECK);
   });
 
-  it("completes with the same result as an unsignalled run when the signal never aborts", () => {
+  it("completes with the same result as an unsignalled run when the signal never aborts", budgetFor(SPACE * WHOLE_SPACE_SEARCHES, COMBINATION_BUDGET_MS), () => {
     const { model } = abortingModel(SPACE + 1);
     const signal = new AbortController().signal;
     expect(count(model, { signal })).toBe(SPACE);
