@@ -146,3 +146,46 @@ describe("the dimensions' names and order", () => {
     expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: activity })] })).toThrow(ModelError);
   });
 });
+
+describe("a predicate bound to the model", () => {
+  it("types test with each read dimension's values", () => {
+    const model = defineModel({
+      dimensions,
+      constraints: ({ predicate: typed }) => [
+        typed({
+          name: "musl only on x64",
+          reads: ["libc", "arch"],
+          test: (values) => {
+            expectTypeOf(values).toEqualTypeOf<Readonly<Pick<Combination, "libc" | "arch">>>();
+
+            return values.libc !== "musl" || values.arch === "x64";
+          },
+        }),
+      ],
+    });
+    expect(collect(model, { limit: 32 }).every(({ values }) => values.libc !== "musl" || values.arch === "x64")).toBe(true);
+  });
+
+  it("refuses a read of an unknown dimension and a comparison with a value the dimension never takes", () => {
+    // @ts-expect-error kernel is not a dimension
+    expect(() => defineModel({ dimensions, constraints: ({ predicate: typed }) => [typed({ reads: ["kernel"], test: () => true })] })).toThrow(ModelError);
+    // @ts-expect-error os is never "windows", so the comparison has no overlap
+    defineModel({ dimensions, constraints: ({ predicate: typed }) => [typed({ reads: ["os"], test: ({ os }) => os !== "windows" })] });
+  });
+
+  it("refuses a first-valid dimension with a later one, as the standalone predicate does", () => {
+    const ordered = [choice("os", ["linux", "macos"]), firstValid("channel", ["stable", "beta"]), choice("arch", ["x64", "arm64"])] as const;
+    // @ts-expect-error arch is declared after the first-valid channel
+    expect(() => defineModel({ dimensions: ordered, constraints: ({ predicate: typed }) => [typed({ reads: ["channel", "arch"], test: () => true })] })).toThrow(ModelError);
+  });
+
+  it("answers invalid without calling test for a value outside a domain, which only a strategy's own assignment can supply", () => {
+    const seen: unknown[] = [];
+    const model = defineModel({ dimensions: [choice("os", ["linux", "macos"])], constraints: ({ predicate: typed }) => [typed({ reads: ["os"], test: ({ os }) => seen.push(os) > 0 })] });
+    const [constraint] = model.constraints;
+    expect(constraint?.evaluate(new Map([["os", "bsd"]]))).toBe("invalid");
+    expect(seen).toEqual([]);
+    expect(constraint?.evaluate(new Map([["os", "linux"]]))).toBe("valid");
+    expect(seen).toEqual(["linux"]);
+  });
+});

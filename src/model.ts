@@ -1,8 +1,9 @@
 import type { ConstraintDefects, DimensionDefects, Refusal, RuleDefects } from "./checks";
 import type { Condition, Mention } from "./condition";
 import { conditionDependencies, conditionMentions } from "./condition";
-import type { Constraint } from "./constraint";
-import type { Dimension, TupleOf } from "./dimension";
+import type { Constraint, ConstraintTools, PredicateValues, TypedPredicateDefinition } from "./constraint";
+import { predicate } from "./constraint";
+import type { Dimension, NameOf, TupleOf } from "./dimension";
 import { ModelError } from "./errors";
 import type { Rule, TypedRule } from "./rule";
 import { ruleConditions, ruleConstraint } from "./rule";
@@ -17,8 +18,10 @@ export interface ModelDefinition<Ds extends readonly Dimension[], Rs extends rea
   readonly dimensions: Ds & Refusal<DimensionDefects<Ds>>;
   /** Declarative constraints, as JSON-shaped data whose dimension names and compared values are checked against the dimensions at compile time. Rules read from JSON go through `parseRules` first, which checks them at runtime and returns them typed. `defineModel` checks every rule at runtime as well, since data can bypass the types. */
   readonly rules?: Rs & Refusal<RuleDefects<Ds, Rs>>;
-  /** Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. Literal dependencies, such as `predicate`'s, are checked at compile time; dependencies typed `string` at runtime only. */
-  readonly constraints?: Cs & Refusal<ConstraintDefects<Ds, Cs>>;
+  /**
+   * Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. Literal dependencies, such as `predicate`'s, are checked at compile time; dependencies typed `string` at runtime only. Given as a callback, it receives `ConstraintTools` bound to the dimensions, whose `predicate` types `test` with each read dimension's values.
+   */
+  readonly constraints?: (Cs & Refusal<ConstraintDefects<Ds, Cs>>) | ((tools: ConstraintTools<Ds>) => readonly Constraint[]);
 }
 
 /** The parts of a checked model that do not depend on the type of its combinations. */
@@ -46,13 +49,13 @@ export type CombinationOf<M> = M extends Model<infer T> ? T : never;
 export function defineModel<const Ds extends readonly Dimension[], const Rs extends readonly TypedRule<TupleOf<Ds>>[] = readonly TypedRule<TupleOf<Ds>>[], const Cs extends readonly Constraint[] = readonly Constraint[]>(definition: ModelDefinition<Ds, Rs, Cs>): Model<TupleOf<Ds>> {
   const { dimensions } = definition;
   const rules: readonly Rule[] = definition.rules ?? [];
-  const given = definition.constraints ?? [];
+  const possible = new Map(dimensions.map((dimension) => [dimension.name, possibleKeys(dimension)]));
+  const given: readonly Constraint[] = typeof definition.constraints === "function" ? definition.constraints(constraintTools<Ds>(possible)) : (definition.constraints ?? []);
   const constraints = [...rules.map(ruleConstraint), ...given];
   const sources = [...rules, ...given.map(() => undefined)];
   const issues = checkModel(dimensions, rules, constraints);
   if (issues.length > 0) throw new ModelError(issues);
 
-  const possible = new Map(dimensions.map((dimension) => [dimension.name, possibleKeys(dimension)]));
   const isTuple = (values: Readonly<Record<string, Value>>): values is TupleOf<Ds> => {
     const keys = Object.keys(values);
     if (keys.length !== dimensions.length) return false;
@@ -68,6 +71,25 @@ export function defineModel<const Ds extends readonly Dimension[], const Rs exte
   };
 
   return { dimensions, rules, constraints, sources, isTuple };
+}
+
+/** The tools a `constraints` callback receives, over the possible value keys of each dimension by name (`undefined` for a computed one). */
+function constraintTools<Ds extends readonly Dimension[]>(possible: ReadonlyMap<string, Set<string> | undefined>): ConstraintTools<Ds> {
+  return {
+    predicate: <const R extends NameOf<Ds>>(definition: TypedPredicateDefinition<TupleOf<Ds>, R>) => {
+      const { reads } = definition;
+      // Whether every read value is one its dimension can take, which is what `Pick<TupleOf<Ds>, R>` states: the type of each choice or first-valid dimension is its domain, and a computed one's is its compute function's return type, which is not known at runtime.
+      const fits = (values: Readonly<PredicateValues<R>>): values is Readonly<PredicateValues<R>> & Pick<TupleOf<Ds>, R> =>
+        reads.every((read) => {
+          const keys = possible.get(read);
+
+          return keys === undefined || keys.has(valueKey(values[read]));
+        });
+      const test = (values: Readonly<PredicateValues<R>>): boolean => fits(values) && definition.test(values);
+
+      return definition.name === undefined ? predicate({ reads, test }) : predicate({ reads, test, name: definition.name });
+    },
+  };
 }
 
 /** The keys of every value a dimension can hold in a combination, or `undefined` when a function computes it and the set is not known ahead. */

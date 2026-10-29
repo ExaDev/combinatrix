@@ -76,7 +76,7 @@ export type RuleDefects<Ds extends readonly Dimension[], Rs extends readonly unk
 export type ConstraintDefects<Ds extends readonly Dimension[], Cs extends readonly Constraint[]> = Cs[number] extends infer K extends Constraint ? (K extends unknown ? ConstraintDefect<Ds, K["dependencies"][number]> : never) : never;
 
 /** The defects of one constraint depending on the names `D`. */
-type ConstraintDefect<Ds extends readonly Dimension[], D extends string> = string extends D ? never : (D extends Ds[number]["name"] ? never : `a constraint depends on unknown dimension "${D}"`) | OrderDefect<Ds, D, "a constraint">;
+export type ConstraintDefect<Ds extends readonly Dimension[], D extends string> = string extends D ? never : (D extends Ds[number]["name"] ? never : `a constraint depends on unknown dimension "${D}"`) | OrderDefect<Ds, D, "a constraint">;
 
 /** A parameter type that accepts its argument only when there are no defects, and otherwise names them in an `error` property the argument lacks. */
 export type Refusal<D extends string> = [D] extends [never] ? unknown : { readonly error: D };

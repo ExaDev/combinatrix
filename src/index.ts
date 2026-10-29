@@ -1,6 +1,6 @@
 export type { Condition, TypedCondition, UnsettableIn } from "./condition";
 export { predicate } from "./constraint";
-export type { Constraint, Predicate, PredicateDefinition, PredicateValues, Verdict } from "./constraint";
+export type { Constraint, ConstraintTools, Predicate, PredicateDefinition, PredicateValues, TypedPredicateDefinition, Verdict } from "./constraint";
 export { choice, computed, firstValid, sampled } from "./dimension";
 export type { ChoiceDimension, ComputedDefinition, ComputedDimension, ConditionalOptions, Dimension, DimensionOptions, FirstValidDimension, NameOf, Sampler, TupleOf, ValueOf } from "./dimension";
 export { collect, combinations, count, diagnose } from "./enumerate";
