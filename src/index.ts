@@ -6,11 +6,11 @@ export type { ChoiceDimension, ComputedDefinition, ComputedDimension, Conditiona
 export { collect, combinations, count, diagnose } from "./enumerate";
 export type { CancellationOptions, Combination, CombinationsOptions, DeadValue, Diagnosis, LimitOptions } from "./enumerate";
 export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelError, StrategyError } from "./errors";
-export { explain } from "./explain";
-export type { Explanation, Reason } from "./explain";
+export { explain, explainData } from "./explain";
+export type { ExactRecord, Explanation, Reason } from "./explain";
 export { isCondition, isRule } from "./guards";
 export { defineModel } from "./model";
-export type { Model, ModelDefinition, ModelParts } from "./model";
+export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model";
 export type { Rule } from "./rule";
 export { full } from "./strategy";
 export type { Strategy, StrategyContext } from "./strategy";

@@ -347,7 +347,8 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 ### Diagnostics
 
-- `explain(model, record)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the record is not in the solution set: an unknown or missing dimension, a value outside its domain, a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule). Derived dimensions may be left out of the record.
+- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule). The record is typed as one of the model's combinations (`CombinationOf<typeof model>`), so a missing or unknown dimension or a value outside a domain is a compile error.
+- `explainData(model, data)`: the same for data the compiler cannot check, such as parsed JSON or user input. It also reports data that is not an object, an unknown or missing dimension, a value outside its domain and something that is not a value at all; a value outside its domain is never passed on to a constraint. Derived dimensions may be left out.
 - `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes.
 
 ### Errors
@@ -387,7 +388,7 @@ interface Strategy {
 }
 ```
 
-The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explain`, and one outside the solution set throws `StrategyError`.
+The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explainData`, and one outside the solution set throws `StrategyError`.
 
 ## Development
 

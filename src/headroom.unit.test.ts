@@ -95,7 +95,9 @@ describe("the measurement matrix fixture", () => {
     expect(new Set(free).size).toBe(combinations.length);
     const withoutFeatures = combinations.filter(({ values }) => values.interceptToolResults === undefined && values.readMaturation === undefined);
     expect(withoutFeatures.every(({ values }) => values.rolloutChannel === undefined)).toBe(true);
-    expect(explain(model, { ...withoutFeatures[0]?.values, rolloutChannel: "dev" })).toMatchObject({ valid: false, reasons: [{ kind: "inactive", dimension: "rolloutChannel", value: "dev" }] });
+    const [plain] = withoutFeatures;
+    if (plain === undefined) throw new Error("no combination leaves both features off");
+    expect(explain(model, { ...plain.values, rolloutChannel: "dev" })).toMatchObject({ valid: false, reasons: [{ kind: "inactive", dimension: "rolloutChannel", value: "dev" }] });
   });
 
   it("names the rule that excludes a channel too weak for a feature", () => {
