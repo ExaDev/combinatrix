@@ -6,6 +6,7 @@ import { isJsonArray, isJsonObject, jsonTypeOf } from "./json";
 import { addKey, convertJson, moveKey, removeKey, renameKeyAt, setNode, uniqueName } from "./modelEdit";
 import type { RowSpec, TreeHost } from "./controls";
 import { addButton, arrayRow, childLabel, choices, fieldId, numberInput, rowButtons, switchNode, textField } from "./controls";
+import { noSlots } from "./typeMemory";
 
 /** How each type of JSON value is named in the menu that chooses it. */
 const JSON_TYPE_LABELS: Readonly<Record<JsonType, string>> = {
@@ -158,7 +159,7 @@ export function jsonValueEditor(host: TreeHost, spec: ValueSpec): HTMLElement {
     choices: JSON_TYPE_CHOICES,
     selected: type,
     onChange: (next) => {
-      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), announce: `${label} is now ${JSON_TYPE_LABELS[next]}.` });
+      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), slots: noSlots, announce: `${label} is now ${JSON_TYPE_LABELS[next]}.` });
     },
   });
   const buttons = spec.row === undefined ? undefined : rowButtons(host, spec.row);

@@ -1,7 +1,7 @@
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject, parseJson } from "./json";
 import { displayProblem, EMPTY_MODEL, setNode } from "./modelEdit";
-import type { Memory, Place } from "./typeMemory";
+import type { Memory, Place, Slots } from "./typeMemory";
 import { forgetInside, forgetWithin, NO_MEMORY, switchVariant } from "./typeMemory";
 
 /** The spaces a model is indented by when the form writes it. */
@@ -73,24 +73,27 @@ export function stateAfterEdit(state: EditorState, change: (model: JsonObject) =
 }
 
 /**
- * An item switched from one variant to another, as the form asks for it: where the item is, the part of the model that varies with the variant and how to read and write it, and how to convert it for a variant the item has not been in. `from` and `to` are names from one vocabulary of variants (see `Switch`).
+ * An item switched from one variant to another, as the form asks for it: where the item is, the part of the model that varies with the variant and how to read and write it, where its children are, and how to convert it for a variant the item has not been in. `from` and `to` are names from the vocabulary of variants (see `Switch`).
  */
 export interface ItemSwitch {
   readonly place: Place;
+  readonly vocabulary: string;
   readonly from: string;
   readonly to: string;
   readonly read: (model: JsonObject) => Json;
   readonly write: (model: JsonObject, part: Json) => JsonObject;
   readonly convert: (current: Json) => Json;
+  readonly slots: (part: Json) => Slots;
   readonly inside: "kept" | "dropped";
 }
 
 /** The switch of the node at a path: the part that varies is the node. */
-export function nodeSwitch(spec: { readonly path: Place; readonly from: string; readonly to: string; readonly convert: (current: Json) => Json }): ItemSwitch {
+export function nodeSwitch(spec: { readonly path: Place; readonly vocabulary: string; readonly from: string; readonly to: string; readonly convert: (current: Json) => Json; readonly slots: (part: Json) => Slots }): ItemSwitch {
   const { path } = spec;
 
   return {
     place: path,
+    vocabulary: spec.vocabulary,
     from: spec.from,
     to: spec.to,
     read: (model) => {
@@ -101,6 +104,7 @@ export function nodeSwitch(spec: { readonly path: Place; readonly from: string; 
     },
     write: (model, part) => setNode(model, path, part),
     convert: spec.convert,
+    slots: spec.slots,
     inside: "kept",
   };
 }
@@ -108,7 +112,7 @@ export function nodeSwitch(spec: { readonly path: Place; readonly from: string; 
 /** The state after an item is switched: the model has the part the item takes up, and the memory has the part it left. */
 export function stateAfterSwitch(state: EditorState, spec: ItemSwitch): EditorState {
   const current = spec.read(state.model);
-  const switched = switchVariant(state.memory, { place: spec.place, from: spec.from, to: spec.to, current, convert: () => spec.convert(current), inside: spec.inside });
+  const switched = switchVariant(state.memory, { place: spec.place, vocabulary: spec.vocabulary, from: spec.from, to: spec.to, current, convert: () => spec.convert(current), slots: spec.slots, inside: spec.inside });
 
   return stateFromModel(spec.write(state.model, switched.part), switched.memory);
 }

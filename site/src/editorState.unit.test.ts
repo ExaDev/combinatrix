@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyState, nodeSwitch, stateAfterEdit, stateAfterSwitch, stateFromModel, stateFromText } from "./editorState";
 import type { JsonObject } from "./json";
-import { NO_MEMORY } from "./typeMemory";
+import { NO_MEMORY, noSlots } from "./typeMemory";
 import { convertJson } from "./modelEdit";
 
 const PREVIOUS: JsonObject = { dimensions: [{ kind: "choice", name: "kept", values: ["a"] }] };
@@ -72,7 +72,7 @@ const OUTSIDE = ["dimensions", 0, "values", PAST_THE_END] as const;
 
 /** The state after the value at a path is switched to another type. */
 function switched(state: ReturnType<typeof stateFromModel>, path: readonly (string | number)[], from: string, to: "text" | "number"): ReturnType<typeof stateFromModel> {
-  return stateAfterSwitch(state, nodeSwitch({ path, from, to, convert: (current) => convertJson(current, to) }));
+  return stateAfterSwitch(state, nodeSwitch({ path, vocabulary: "json", from, to, convert: (current) => convertJson(current, to), slots: noSlots }));
 }
 
 describe("stateAfterSwitch", () => {

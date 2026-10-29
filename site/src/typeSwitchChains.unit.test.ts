@@ -6,7 +6,8 @@ import { nodeSwitch, stateAfterSwitch, stateFromModel } from "./editorState";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject, parseJson } from "./json";
 import type { ExpressionKind, PredicateKind } from "./nodes";
-import { changeExpressionKind, changePredicateKind, EXPRESSION_KINDS, PREDICATE_KINDS } from "./nodes";
+import { changeExpressionKind, changePredicateKind, EXPRESSION_KINDS, expressionSlots, PREDICATE_KINDS, predicateSlots } from "./nodes";
+import type { Slots } from "./typeMemory";
 import { anyExpressionArb, anyPredicateArb } from "./treeArbitraries";
 
 /** How deep generated trees go, how long a chain of switches is, how many chains are tried, and the seed that makes a failure reproducible. */
@@ -35,11 +36,11 @@ function kindOf(node: Json | undefined): string {
 }
 
 /** What the form does when a kind menu is used, without the page: the same switch, naming the variants the same way. */
-function switchKind(state: EditorState, where: { readonly path: readonly (string | number)[]; readonly vocabulary: string }, to: string, change: (current: Json) => Json): EditorState {
-  const { path, vocabulary } = where;
+function switchKind(state: EditorState, where: { readonly path: readonly (string | number)[]; readonly vocabulary: string; readonly slots: (part: Json) => Slots }, to: string, change: (current: Json) => Json): EditorState {
+  const { path, vocabulary, slots } = where;
   const from = kindOf(getIn(state.model, path));
 
-  return stateAfterSwitch(state, nodeSwitch({ path, from: `${vocabulary}:${from}`, to: `${vocabulary}:${to}`, convert: change }));
+  return stateAfterSwitch(state, nodeSwitch({ path, vocabulary, from, to, convert: change, slots }));
 }
 
 describe("any chain of kinds that returns to the start", () => {
@@ -48,7 +49,7 @@ describe("any chain of kinds that returns to the start", () => {
       fc.property(anyPredicateArb(DEPTH), fc.array(fc.constantFrom(...PREDICATE_KINDS), { minLength: 1, maxLength: MAX_SWITCHES }), (condition, chain) => {
         const start = PREDICATE_KINDS.find((kind) => kind === kindOf(condition));
         if (start === undefined) throw new Error("a predicate has a kind the schema defines");
-        const end = [...chain, start].reduce<EditorState>((state, kind: PredicateKind) => switchKind(state, { path: PATH, vocabulary: "predicate" }, kind, (current) => changePredicateKind(current, kind, NAMES)), stateFromModel(modelWith(condition)));
+        const end = [...chain, start].reduce<EditorState>((state, kind: PredicateKind) => switchKind(state, { path: PATH, vocabulary: "predicate", slots: predicateSlots }, kind, (current) => changePredicateKind(current, kind, NAMES)), stateFromModel(modelWith(condition)));
 
         expect(getIn(end.model, PATH)).toEqual(condition);
       }),
@@ -63,7 +64,7 @@ describe("any chain of kinds that returns to the start", () => {
         const start = EXPRESSION_KINDS.find((kind) => kind === kindOf(expression));
         if (start === undefined) throw new Error("an expression has a kind the schema defines");
         const model = modelWith({ kind: "compare", op: "eq", left: OS, right: expression });
-        const end = [...chain, start].reduce<EditorState>((state, kind: ExpressionKind) => switchKind(state, { path: right, vocabulary: "expression" }, kind, (current) => changeExpressionKind(current, kind, NAMES)), stateFromModel(model));
+        const end = [...chain, start].reduce<EditorState>((state, kind: ExpressionKind) => switchKind(state, { path: right, vocabulary: "expression", slots: expressionSlots }, kind, (current) => changeExpressionKind(current, kind, NAMES)), stateFromModel(model));
 
         expect(getIn(end.model, right)).toEqual(expression);
       }),

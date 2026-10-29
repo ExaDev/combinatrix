@@ -31,12 +31,14 @@ import {
   setRuleStatement,
   setValue,
   statementShape,
+  statementSlots,
   viewOfModel,
 } from "./modelEdit";
 import type { ScalarType } from "./scalars";
 import { parseNumber, SCALAR_TYPE_LABELS, SCALAR_TYPES, scalarType } from "./scalars";
 import type { ItemControls, TreeContext, TreeHost } from "./controls";
 import { choices, fieldId, rawJson, rowButtons, switchNode } from "./controls";
+import { noSlots } from "./typeMemory";
 import { JSON_VOCABULARY } from "./valueForm";
 import { optionalCondition, predicateNode } from "./treeForm";
 
@@ -76,7 +78,7 @@ function valueRow(host: FormHost, spec: { readonly index: number; readonly name:
     choices: SCALAR_TYPE_CHOICES,
     selected: type,
     onChange: (next: ScalarType) => {
-      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), announce: `${label} is now ${SCALAR_TYPE_LABELS[next]}.` });
+      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), slots: noSlots, announce: `${label} is now ${SCALAR_TYPE_LABELS[next]}.` });
     },
   });
 
@@ -235,11 +237,13 @@ function ruleCard(ctx: TreeContext, spec: { readonly index: number; readonly cou
       host.switchTo(
         {
           place: path,
-          from: `${STATEMENT_VOCABULARY}:${statementShape(from)}`,
-          to: `${STATEMENT_VOCABULARY}:${statementShape(next)}`,
+          vocabulary: STATEMENT_VOCABULARY,
+          from: statementShape(from),
+          to: statementShape(next),
           read: (model) => ruleStatement(model, index),
           write: (model, statement) => setRuleStatement(model, index, next, statement),
           convert: (statement) => restate(statement, from, next, ctx.names),
+          slots: statementSlots,
           // The statement is stated under another key, which the paths of the items inside it contain.
           inside: "dropped",
         },
