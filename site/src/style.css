@@ -548,3 +548,8 @@ fieldset legend {
 .entry > * {
   min-width: 0;
 }
+
+.operation .hint {
+  margin: 4px 0 8px;
+  font-size: 0.9rem;
+}

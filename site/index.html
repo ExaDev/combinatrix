@@ -72,44 +72,52 @@
 
         <div class="operation">
           <h3>Count</h3>
-          <button type="button" class="op" id="count">Count combinations</button>
+          <p class="hint" id="count-help" data-help="count"></p>
+          <button type="button" class="op" id="count" aria-describedby="count-help">Count combinations</button>
           <div id="count-result" class="result" aria-live="polite"></div>
         </div>
 
         <div class="operation">
           <h3>List</h3>
+          <p class="hint" id="list-help" data-help="list"></p>
           <div class="row">
-            <label>Show at most <input type="number" id="list-limit" min="0" step="1" inputmode="numeric" /></label>
-            <button type="button" class="op" id="list">List combinations</button>
+            <label>Show at most <input type="number" id="list-limit" min="0" step="1" inputmode="numeric" aria-describedby="list-limit-help" /></label>
+            <button type="button" class="op" id="list" aria-describedby="list-help">List combinations</button>
           </div>
+          <p class="hint" id="list-limit-help" data-help="list-limit"></p>
           <div id="list-result" class="result" aria-live="polite"></div>
         </div>
 
         <div class="operation">
           <h3>Dead values</h3>
-          <button type="button" class="op" id="diagnose">Find dead values</button>
+          <p class="hint" id="diagnose-help" data-help="diagnose"></p>
+          <button type="button" class="op" id="diagnose" aria-describedby="diagnose-help">Find dead values</button>
           <div id="diagnose-result" class="result" aria-live="polite"></div>
         </div>
 
         <div class="operation">
           <h3>Covering array</h3>
+          <p class="hint" id="covering-help" data-help="covering"></p>
           <div class="row">
-            <label>Strength <input type="number" id="strength" min="1" step="1" inputmode="numeric" /></label>
-            <button type="button" class="op" id="covering">Build covering array</button>
+            <label>Strength <input type="number" id="strength" min="1" step="1" inputmode="numeric" aria-describedby="strength-help" /></label>
+            <button type="button" class="op" id="covering" aria-describedby="covering-help">Build covering array</button>
           </div>
+          <p class="hint" id="strength-help" data-help="strength"></p>
           <div id="covering-result" class="result" aria-live="polite"></div>
         </div>
 
         <div class="operation">
           <h3>One combination</h3>
+          <p class="hint" id="one-help" data-help="one"></p>
           <div class="row">
-            <label>Index <input type="number" id="index" min="0" step="1" inputmode="numeric" /></label>
-            <button type="button" class="op" id="at">Show combination at index</button>
+            <label>Index <input type="number" id="index" min="0" step="1" inputmode="numeric" aria-describedby="one-help" /></label>
+            <button type="button" class="op" id="at" aria-describedby="one-help">Show combination at index</button>
           </div>
-          <fieldset id="pickers" class="pickers">
+          <p class="hint" id="explain-help" data-help="explain"></p>
+          <fieldset id="pickers" class="pickers" aria-describedby="explain-help">
             <legend>Pick a value for each dimension</legend>
           </fieldset>
-          <button type="button" class="op" id="explain">Explain and find index</button>
+          <button type="button" class="op" id="explain" aria-describedby="explain-help">Explain and find index</button>
           <div id="combination-result" class="result" aria-live="polite"></div>
         </div>
       </section>
