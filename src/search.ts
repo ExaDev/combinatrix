@@ -1,9 +1,10 @@
 import { stepCheck } from "./cancellation";
+import { conditionDependencies } from "./condition";
 import type { Step } from "./engine";
 import { computeValue, firstCandidate, isActive, recordOf, stepsOf, unconditionalConstraints, verdictOf } from "./engine";
 import type { ModelParts } from "./model";
 import type { PartialAssignment, Value } from "./value";
-import { isScalar, sameValue } from "./value";
+import { isScalar, sameValue, valueKey } from "./value";
 
 /**
  * The values a step offers under the assignment of the steps before it: unset alone for an inactive dimension, a free dimension's whole domain, or a derived dimension's single value. Empty when a first-valid dimension has no acceptable candidate.
@@ -65,16 +66,107 @@ export function* searchCombinations(model: ModelParts, options: SearchOptions = 
   yield* descend(0);
 }
 
+/** Counts the completions of an assignment the search reaches below a depth, returning `undefined` as soon as the count exceeds `limit`: the contract `countCompletions` and `naiveCompletions` share. */
+export type LimitedCompletionCount = (search: CountingSearch, depth: number, assignment: Map<string, Value>, limit: number | undefined) => number | undefined;
+
+/** What `countSearch` takes besides the model and limit; each may be absent. */
+export interface CountSearchOptions {
+  /** Aborting it makes the count throw the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+  /** How the solution set is counted. Defaults to the memoised `countCompletions`; a test passes `naiveCompletions` to compare the two. */
+  readonly completions?: LimitedCompletionCount | undefined;
+}
+
 /**
- * The size of the solution set, by the same search as `searchCombinations` without building a record per combination, through `countCompletions`. Returns `undefined` as soon as the count exceeds `limit`; with no limit it always returns the count. An aborted `signal` makes it throw the signal's reason, before its first step if it is already aborted and otherwise within `STEPS_PER_ABORT_CHECK` steps of the abort.
+ * The size of the solution set, by the same search as `searchCombinations` without building a record per combination, through the `completions` option. Returns `undefined` as soon as the count exceeds `limit`; with no limit it always returns the count. An aborted `signal` makes it throw the signal's reason, before its first step if it is already aborted and otherwise within `STEPS_PER_ABORT_CHECK` steps of the abort.
  */
-export function countSearch(model: ModelParts, limit: undefined, signal?: AbortSignal): number;
-export function countSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): number | undefined;
-export function countSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): number | undefined {
+export function countSearch(model: ModelParts, limit: undefined, options?: CountSearchOptions): number;
+export function countSearch(model: ModelParts, limit: number | undefined, options?: CountSearchOptions): number | undefined;
+export function countSearch(model: ModelParts, limit: number | undefined, options: CountSearchOptions = {}): number | undefined {
+  const { signal, completions = countCompletions } = options;
   const search = countingSearch(model, signal);
   if (rejectedOutright(model)) return 0;
 
-  return countCompletions(search, 0, new Map(), limit);
+  return completions(search, 0, new Map(), limit);
+}
+
+/** What `diagnoseSearch` finds in a solution set within its limit. */
+export interface SearchDiagnosis {
+  /** The size of the solution set. */
+  readonly count: number;
+  /** For each dimension, in declaration order, the `valueKey` of every value some combination of the solution set gives it. */
+  readonly live: readonly ReadonlySet<string>[];
+}
+
+/**
+ * The size of the solution set and the values each dimension takes in it, from the memoised suffix counts rather than from the combinations: a value is live exactly when some assignment the search reaches offers it, admits it, and leaves a positive count of completions under it. The walk visits each frontier state of each depth once and descends only into states with a positive count, so it costs no more than the count itself plus one memoised lookup per option of each visited state. Returns `undefined` as soon as the count exceeds `limit`, at the same boundary as `countSearch`; an aborted `signal` throws its reason as `countSearch` does.
+ */
+export function diagnoseSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): SearchDiagnosis | undefined {
+  const search = countingSearch(model, signal);
+  const live = search.steps.map(() => new Set<string>());
+  if (rejectedOutright(model)) return { count: 0, live };
+
+  const total = countCompletions(search, 0, new Map(), limit);
+  if (total === undefined) return undefined;
+
+  const visited = search.steps.map(() => new Set<string>());
+  const assignment = new Map<string, Value>();
+  let closedMarked = false;
+
+  /** Marks the values each step from `depth` on takes, when every step from there is inert: a free dimension takes each of its values and an inert first-valid one its first candidate, since no constraint can reject it. */
+  function markClosed(depth: number): void {
+    if (closedMarked) return;
+
+    closedMarked = true;
+    search.steps.slice(depth).forEach(({ dimension }, offset) => {
+      const keys = live[depth + offset];
+      if (keys === undefined) throw new Error("unreachable: there is a set of live values per step");
+      if (dimension.kind === "choice") for (const value of dimension.values) keys.add(valueKey(value));
+      if (dimension.kind === "first-valid") keys.add(valueKey(dimension.candidates[0]));
+    });
+  }
+
+  function visit(depth: number): void {
+    search.checkStep();
+    // Every depth from the first closed one on is closed too, and the walk enters a depth only under a positive count, so a closed depth's product is positive and every value it offers is taken.
+    if (search.unconstrainedFrom[depth] !== undefined) {
+      markClosed(depth);
+
+      return;
+    }
+    const { step, frontier, seen, keys } = layerOf(search, depth, visited, live);
+    const key = frontierKey(frontier, assignment);
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    const { name } = step.dimension;
+    try {
+      for (const value of optionsAt(step, assignment)) {
+        assignment.set(name, value);
+        if (!admissible(step, assignment) || countCompletions(search, depth + 1, assignment, undefined) === 0) continue;
+
+        keys.add(valueKey(value));
+        visit(depth + 1);
+      }
+    } finally {
+      assignment.delete(name);
+    }
+  }
+
+  if (total > 0) visit(0);
+
+  return { count: total, live };
+}
+
+/** The step, frontier, visited frontier states and live value keys of an unclosed depth of a diagnosis walk. */
+function layerOf(search: CountingSearch, depth: number, visited: readonly Set<string>[], live: readonly Set<string>[]): { readonly step: Step; readonly frontier: readonly string[]; readonly seen: Set<string>; readonly keys: Set<string> } {
+  const step = search.steps[depth];
+  const frontier = search.frontiers[depth];
+  const seen = visited[depth];
+  const keys = live[depth];
+  if (step === undefined || frontier === undefined || seen === undefined || keys === undefined) throw new Error(`unreachable: the depth past the last step always has a closed count (depth ${String(depth)})`);
+
+  return { step, frontier, seen, keys };
 }
 
 /** Whether a constraint that mentions no dimension rejects every combination, so the solution set is empty. */
@@ -88,30 +180,46 @@ export interface CountingSearch {
   readonly steps: readonly Step[];
   /** `suffixProducts(steps)`: the closed count of each depth whose remaining steps can neither reject nor collapse anything. */
   readonly unconstrainedFrom: readonly (number | undefined)[];
+  /** `frontiersOf(steps)`: for each depth, the dimensions before it whose values the steps from it on read, in declaration order. */
+  readonly frontiers: readonly (readonly string[])[];
+  /** For each depth, the number of completions of each frontier state counted so far, keyed by `frontierKey`. It is the only state a count keeps, and it is created per operation, so it never outlives the model value it was counted from. */
+  readonly completions: readonly Map<string, number>[];
   /** Called once per visited node; throws the abort signal's reason. */
   readonly checkStep: () => void;
 }
 
-/** The counting context for a model. An already aborted `signal` throws its reason here, before any step. */
+/** The counting context for one operation on a model, with an empty memo. An already aborted `signal` throws its reason here, before any step. */
 export function countingSearch(model: ModelParts, signal: AbortSignal | undefined): CountingSearch {
   const checkStep = stepCheck(signal);
   const steps = stepsOf(model);
 
-  return { steps, unconstrainedFrom: suffixProducts(steps), checkStep };
+  return { steps, unconstrainedFrom: suffixProducts(steps), frontiers: frontiersOf(steps), completions: steps.map(() => new Map<string, number>()), checkStep };
 }
 
 /**
- * The number of solutions that extend an assignment of the steps before `depth`, an assignment the search reaches (every step before `depth` assigned with one of its options and admissible). It is the one function through which `countSearch` and ranking count, so a faster count, such as one memoised on the state of the constraints that still read an assigned dimension, replaces this function alone and keeps its contract. Where no remaining step is conditionally active, first-valid with constraints, or mentioned by a constraint, every combination of the remaining free values is a solution, so that subtree is counted as the product of their domain sizes without being visited. Returns `undefined` as soon as the count exceeds `limit`; with no limit it always returns the count. The assignment is left as it was found.
+ * The number of solutions that extend an assignment of the steps before `depth`, an assignment the search reaches (every step before `depth` assigned with one of its options and admissible), memoised on the assignment's frontier state at that depth: the values of the dimensions before it that a step from it on still reads. It is the one function through which `countSearch`, `diagnoseSearch` and ranking count.
+ *
+ * Everything below `depth` is a function of the frontier state alone. The steps from `depth` on read an assigned dimension only through a constraint that mentions them, which by the `Constraint` contract reads exactly its declared `dependencies`; through an `activeWhen` condition, which reads the dimensions it mentions; and through a computed dimension's `reads`, which `compute` receives and nothing else. `frontiersOf` collects exactly those. The set of assigned dimensions is the same at a given depth on every path, so whether a read dimension is assigned never differs between two states either. Two assignments that agree on the frontier therefore offer the same options, admit the same values and derive the same values at every step below, and have the same number of completions; so the first count of a frontier state is stored and every later visit to that state returns it. A constraint whose `evaluate` reads a dimension it does not declare breaks the contract, and the search's pruning already depends on the declaration being complete, since it evaluates a constraint only at the steps of its declared dependencies.
+ *
+ * The memo holds at most one entry per distinct frontier state reached at each depth, so its size is bounded by the sum over depths of the product, over that depth's frontier, of the number of values each frontier dimension can hold, however large the solution set is; and each entry is counted once, visiting one node per option of its step. A chain of constraints between adjacent dimensions has a frontier of one dimension at every depth, so it is counted in work linear in the number of dimensions and quadratic in the domain size, where a search without the memo visits every solution.
+ *
+ * Where no remaining step is conditionally active, first-valid with constraints, or mentioned by a constraint, every combination of the remaining free values is a solution, so that subtree is counted as the product of their domain sizes without being visited. Returns `undefined` as soon as the count exceeds `limit`, at the same boundary as `naiveCompletions`; with no limit it always returns the count. A subtree abandoned at the limit is not stored, so every stored count is exact. The assignment is left as it was found.
  */
 export function countCompletions(search: CountingSearch, depth: number, assignment: Map<string, Value>, limit: undefined): number;
 export function countCompletions(search: CountingSearch, depth: number, assignment: Map<string, Value>, limit: number | undefined): number | undefined;
 export function countCompletions(search: CountingSearch, depth: number, assignment: Map<string, Value>, limit: number | undefined): number | undefined {
   search.checkStep();
   const closed = search.unconstrainedFrom[depth];
-  if (closed !== undefined) return limit === undefined || closed <= limit ? closed : undefined;
+  if (closed !== undefined) return withinLimit(closed, limit);
 
   const step = search.steps[depth];
-  if (step === undefined) throw new Error(`unreachable: the depth past the last step always has a closed count (depth ${String(depth)})`);
+  const frontier = search.frontiers[depth];
+  const memo = search.completions[depth];
+  if (step === undefined || frontier === undefined || memo === undefined) throw new Error(`unreachable: the depth past the last step always has a closed count (depth ${String(depth)})`);
+
+  const key = frontierKey(frontier, assignment);
+  const known = memo.get(key);
+  if (known !== undefined) return withinLimit(known, limit);
 
   const { name } = step.dimension;
   let total = 0;
@@ -126,6 +234,7 @@ export function countCompletions(search: CountingSearch, depth: number, assignme
 
       total += below;
     }
+    memo.set(key, total);
 
     return total;
   } finally {
@@ -133,7 +242,82 @@ export function countCompletions(search: CountingSearch, depth: number, assignme
   }
 }
 
-/** Counts the completions of an assignment the search reaches below a depth, as `countCompletions` does with no limit: the seam ranking counts through. */
+/**
+ * The reference for `countCompletions`: the same search without the memo, visiting every node of the subtree under the assignment, so its work grows with the number of solutions. Only the tests use it, to hold the memoised count to it. Same contract, closed products and limit boundary as `countCompletions`.
+ */
+export const naiveCompletions: LimitedCompletionCount = (search, depth, assignment, limit) => {
+  search.checkStep();
+  const closed = search.unconstrainedFrom[depth];
+  if (closed !== undefined) return withinLimit(closed, limit);
+
+  const step = search.steps[depth];
+  if (step === undefined) throw new Error(`unreachable: the depth past the last step always has a closed count (depth ${String(depth)})`);
+
+  const { name } = step.dimension;
+  let total = 0;
+  try {
+    for (const value of optionsAt(step, assignment)) {
+      assignment.set(name, value);
+      if (!admissible(step, assignment)) continue;
+
+      // The budget left for this subtree keeps `total` within `limit`, so it is never negative.
+      const below = naiveCompletions(search, depth + 1, assignment, limit === undefined ? undefined : limit - total);
+      if (below === undefined) return undefined;
+
+      total += below;
+    }
+
+    return total;
+  } finally {
+    assignment.delete(name);
+  }
+};
+
+/** The count, or `undefined` when it exceeds `limit`. */
+function withinLimit(total: number, limit: number | undefined): number | undefined {
+  return limit === undefined || total <= limit ? total : undefined;
+}
+
+/**
+ * The memo key of an assignment's frontier state: the `valueKey` of each frontier dimension's value, concatenated in frontier order. Each `valueKey` is a complete JSON array, which no proper prefix of another JSON array is, so the concatenation splits back into the same values one way only, and two states have the same key exactly when they give every frontier dimension the same value.
+ */
+function frontierKey(frontier: readonly string[], assignment: PartialAssignment): string {
+  let key = "";
+  for (const name of frontier) key += valueKey(assignment.get(name));
+
+  return key;
+}
+
+/** The dimensions a step reads besides its own: every dependency of a constraint that mentions it, the dimensions its `activeWhen` mentions, and a computed dimension's `reads`. */
+function readsOf(step: Step): string[] {
+  const { dimension } = step;
+
+  return [...step.constraints.flatMap((constraint) => constraint.dependencies), ...(dimension.activeWhen === undefined ? [] : conditionDependencies(dimension.activeWhen)), ...(dimension.kind === "computed" ? dimension.reads : [])];
+}
+
+/**
+ * For each depth from 0 to the number of steps, the frontier: the dimensions declared before that depth that some step at or after it reads (see `readsOf`), in declaration order. A dimension is in the frontier of every depth after its own up to and including the last step that reads it, so a constraint whose dependencies are all assigned leaves the frontier once its last dependency is, having been decided there.
+ */
+function frontiersOf(steps: readonly Step[]): string[][] {
+  const lastRead = new Map<string, number>();
+  // Steps are visited in increasing depth, so each dimension ends mapped to the deepest step that reads it.
+  steps.forEach((step, depth) => {
+    for (const name of readsOf(step)) lastRead.set(name, depth);
+  });
+
+  return Array.from({ length: steps.length + 1 }, (_, depth) =>
+    steps
+      .slice(0, depth)
+      .map((step) => step.dimension.name)
+      .filter((name) => {
+        const last = lastRead.get(name);
+
+        return last !== undefined && last >= depth;
+      }),
+  );
+}
+
+/** Counts the completions of an assignment the search reaches below a depth, as `countCompletions` does with no limit: the seam ranking counts through, so a test can rank through `naiveCompletions` or a broken count instead. */
 export type CompletionCount = (search: CountingSearch, depth: number, assignment: Map<string, Value>) => number;
 
 /** `countCompletions` with no limit, refusing a count that a JavaScript number cannot hold exactly, since a rank built from it would be silently wrong. */

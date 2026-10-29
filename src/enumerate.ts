@@ -3,7 +3,7 @@ import { LimitExceededError, StrategyError } from "./errors";
 import { explainRecord } from "./explain";
 import type { Model, ModelParts } from "./model";
 import { domainOf } from "./model";
-import { countSearch, searchCombinations } from "./search";
+import { countSearch, diagnoseSearch } from "./search";
 import type { Strategy } from "./strategy";
 import { full, strategyContext } from "./strategy";
 import type { Value } from "./value";
@@ -81,10 +81,10 @@ export function collect<T extends Readonly<Record<string, Value>>>(model: Model<
  */
 export function count(model: ModelParts, options: LimitOptions & CancellationOptions = {}): number {
   const { limit, signal } = options;
-  if (limit === undefined) return countSearch(model, undefined, signal);
+  if (limit === undefined) return countSearch(model, undefined, { signal });
 
   checkNonNegativeInteger("limit", limit);
-  const total = countSearch(model, limit, signal);
+  const total = countSearch(model, limit, { signal });
   if (total === undefined) throw new LimitExceededError(limit);
 
   return total;
@@ -100,28 +100,29 @@ export interface DeadValue {
 export type Diagnosis = { readonly status: "empty" } | { readonly status: "satisfiable"; readonly count: number; readonly deadValues: readonly DeadValue[] };
 
 /**
- * Searches the whole solution set and reports whether it is empty, and otherwise its size and every dead value: a value in a free dimension's domain or a first-valid dimension's candidates that no combination takes. A computed dimension has no declared values, so it has none to report. Throws `LimitExceededError` past `limit` combinations when one is given, and the signal's reason if `signal` aborts.
+ * Reports whether the solution set is empty, and otherwise its size and every dead value: a value in a free dimension's domain or a first-valid dimension's candidates that no combination takes. A computed dimension has no declared values, so it has none to report. It counts as `count` does, memoised on the constraints' frontier, and a value is dead when the count of completions under it is zero wherever the search offers it, so the combinations themselves are never produced. Throws `LimitExceededError` past `limit` combinations when one is given, and the signal's reason if `signal` aborts.
  */
 export function diagnose(model: ModelParts, options: LimitOptions & CancellationOptions = {}): Diagnosis {
   const { limit, signal } = options;
   if (limit !== undefined) checkNonNegativeInteger("limit", limit);
-  const seen = model.dimensions.map((dimension) => ({ dimension, keys: new Set<string>() }));
-  let total = 0;
-  for (const record of searchCombinations(model, { signal })) {
-    total += 1;
-    if (limit !== undefined && total > limit) throw new LimitExceededError(limit);
+  const found = diagnoseSearch(model, limit, signal);
+  if (found === undefined) {
+    if (limit === undefined) throw new Error("unreachable: a search with no limit always finishes with a count");
 
-    for (const { dimension, keys } of seen) keys.add(valueKey(record[dimension.name]));
+    throw new LimitExceededError(limit);
   }
-  if (total === 0) return { status: "empty" };
+  if (found.count === 0) return { status: "empty" };
 
-  const deadValues = seen.flatMap(({ dimension, keys }) =>
-    domainOf(dimension)
-      .filter((value) => !keys.has(valueKey(value)))
-      .map((value) => ({ dimension: dimension.name, value })),
-  );
+  const deadValues = model.dimensions.flatMap((dimension, index) => {
+    const live = found.live[index];
+    if (live === undefined) throw new Error(`unreachable: the search reports the live values of every dimension, "${dimension.name}" included`);
 
-  return { status: "satisfiable", count: total, deadValues };
+    return domainOf(dimension)
+      .filter((value) => !live.has(valueKey(value)))
+      .map((value) => ({ dimension: dimension.name, value }));
+  });
+
+  return { status: "satisfiable", count: found.count, deadValues };
 }
 
 /** Throws `RangeError`, naming the option by `label`, unless `value` is a non-negative safe integer. */

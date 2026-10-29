@@ -52,7 +52,7 @@ export interface SampleOptions extends CancellationOptions {
  */
 export function* samples<T extends Readonly<Record<string, Value>>>(model: Model<T>, options: SampleOptions): Generator<Combination<T>> {
   const { random, signal } = options;
-  const total = exactCount(countSearch(model, undefined, signal));
+  const total = exactCount(countSearch(model, undefined, { signal }));
   if (total === 0) return;
 
   for (;;) {
