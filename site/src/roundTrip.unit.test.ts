@@ -1,11 +1,13 @@
 import fc from "fast-check";
+import { PredicateNodeSchema } from "trilean";
 import { describe, expect, it } from "vitest";
 
 import { execute } from "./engine";
 import { unreachable } from "./exhaustive";
 import { stateFromModel, stateFromText } from "./editorState";
 import type { Json, JsonObject } from "./json";
-import { getIn, isJsonArray, isJsonObject, parseJson } from "./json";
+import { getIn, isJsonArray, isJsonObject } from "./json";
+import { anyPredicateArb, jsonArb, MAX_DOMAIN, MAX_NAME, MAX_TEXT, NUMBER_RANGE } from "./treeArbitraries";
 import type { DimensionKind, RuleForm } from "./modelEdit";
 import { addDimension, addRule, addValue, classifyDimension, classifyRule, EMPTY_MODEL, moveDimension, moveRule, moveValue, removeDimension, removeRule, renameDimension, setActiveWhen, setDimensionKind, setRuleForm, setRuleName, setRuleScope, setValue, viewOfModel } from "./modelEdit";
 import { classifyExpression, classifyPredicate } from "./nodes";
@@ -14,13 +16,9 @@ import { classifyExpression, classifyPredicate } from "./nodes";
 const RUNS = 150;
 const SEED = 20_261_029;
 const MAX_DIMENSIONS = 4;
-const MAX_DOMAIN = 3;
 const MAX_DEPTH = 3;
 const MAX_RULES = 3;
 const MAX_STEPS = 12;
-const MAX_NAME = 4;
-const MAX_TEXT = 6;
-const NUMBER_RANGE = 5;
 
 type DomainType = "text" | "number" | "boolean";
 
@@ -97,9 +95,6 @@ const validModelArb: fc.Arbitrary<JsonObject> = dimensionsArb.chain((free) => {
   });
 });
 
-/** A JSON value with no negative zero, which JSON writes as zero. */
-const jsonArb: fc.Arbitrary<Json> = fc.jsonValue().map((value) => parseJson(JSON.stringify(value)));
-
 /** Whether every node of a tree is one the form builds. */
 function structuredPredicate(node: Json): boolean {
   const view = classifyPredicate(node);
@@ -119,6 +114,11 @@ function structuredPredicate(node: Json): boolean {
       return structuredExpression(view.operand) && view.candidates.every(structuredExpression);
     case "exists":
       return structuredExpression(view.operand);
+    case "some":
+    case "every":
+      return structuredPredicate(view.item) && (view.filter === undefined || structuredPredicate(view.filter));
+    case "treeReference":
+      return true;
     case "raw":
       return false;
     default:
@@ -135,8 +135,17 @@ function structuredExpression(node: Json): boolean {
       return structuredExpression(view.operand);
     case "conditional":
       return view.cases.every((item) => structuredPredicate(item.when) && structuredExpression(item.then)) && structuredExpression(view.fallback);
+    case "call":
+      return view.args.every(structuredExpression);
+    case "lookup":
+      return view.keys.every(structuredExpression);
+    case "fold":
+      return (view.filter === undefined || structuredPredicate(view.filter)) && (view.combiner.mode === "reduce" ? structuredExpression(view.combiner.initial) && structuredExpression(view.combiner.combine) : structuredExpression(view.combiner.item));
     case "raw":
       return false;
+    case "accumulator":
+    case "delegate":
+    case "treeReference":
     case "textLiteral":
     case "instantLiteral":
     case "numberLiteral":
@@ -167,6 +176,40 @@ function everythingStructured(model: JsonObject): boolean {
 function throughText(model: JsonObject): JsonObject {
   return stateFromText(stateFromModel(model).text, EMPTY_MODEL).model;
 }
+
+describe("trees of every kind the schema defines", () => {
+  it("are accepted by trilean's schema, which keeps the properties below about real trees", () => {
+    fc.assert(
+      fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
+        expect(PredicateNodeSchema.safeParse(tree).success).toBe(true);
+      }),
+      { numRuns: RUNS, seed: SEED },
+    );
+  });
+
+  it("are read by the form with no raw node anywhere in them, and survive the text round trip unchanged", () => {
+    fc.assert(
+      fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
+        expect(structuredPredicate(tree)).toBe(true);
+        const model: JsonObject = { dimensions: [], rules: [{ excludes: tree }] };
+
+        expect(throughText(model)).toEqual(model);
+      }),
+      { numRuns: RUNS, seed: SEED },
+    );
+  });
+
+  it("are unchanged by renaming a dimension and then renaming it back", () => {
+    fc.assert(
+      fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
+        const model: JsonObject = { dimensions: [{ kind: "choice", name: "a", values: ["x"] }], rules: [{ excludes: tree }] };
+
+        expect(renameDimension(renameDimension(model, 0, "b"), 0, "a")).toEqual(model);
+      }),
+      { numRuns: RUNS, seed: SEED },
+    );
+  });
+});
 
 describe("generated models", () => {
   it("are accepted by the library, which keeps the properties below about real models", () => {
@@ -233,7 +276,7 @@ describe("constructs the form cannot show", () => {
   /** A model with a dimension, a rule and a top-level key, each of arbitrary JSON, among the parts the form does edit. */
   const strangeModelArb: fc.Arbitrary<JsonObject> = fc.tuple(jsonArb, jsonArb, jsonArb, jsonArb).map(([dimension, rule, extra, node]) => ({
     dimensions: [{ kind: "choice", name: "a", values: ["x"] }, dimension, { kind: "computed", name: "c", reads: ["a"] }],
-    rules: [rule, { excludes: { kind: "and", left: node, right: { kind: "some", collection: "a", item: { kind: "reference", key: "a" } } } }, { requires: { kind: "exists", operand: reference("a") }, because: extra }],
+    rules: [rule, { excludes: { kind: "and", left: node, right: { kind: "mystery", collection: "a", item: { kind: "reference", key: "a" } } } }, { requires: { kind: "exists", operand: reference("a") }, because: extra }],
     extra,
   }));
 

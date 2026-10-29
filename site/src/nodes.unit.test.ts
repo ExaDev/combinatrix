@@ -1,8 +1,23 @@
 import { ExpressionNodeSchema, PredicateNodeSchema } from "trilean";
 import { describe, expect, it } from "vitest";
 
+import { execute } from "./engine";
 import type { Json } from "./json";
-import { changeExpressionKind, changePredicateKind, classifyExpression, classifyPredicate, createExpression, createPredicate, EXPRESSION_KINDS, PREDICATE_KINDS, RAW_EXPRESSION_KINDS, RAW_PREDICATE_KINDS } from "./nodes";
+import {
+  changeExpressionKind,
+  changeFoldMode,
+  changePredicateKind,
+  classifyExpression,
+  classifyPredicate,
+  createExpression,
+  createPredicate,
+  EXPRESSION_KIND_LABELS,
+  EXPRESSION_KINDS,
+  PREDICATE_KIND_LABELS,
+  PREDICATE_KINDS,
+  REFUSED_EXPRESSION_KINDS,
+  REFUSED_PREDICATE_KINDS,
+} from "./nodes";
 
 const NAMES = ["os", "arch"];
 const REFERENCE_OS: Json = { kind: "reference", key: "os" };
@@ -21,26 +36,50 @@ function schemaExpressionKinds(): string[] {
 }
 
 describe("the kinds the form covers", () => {
-  it("builds or shows raw every predicate kind trilean's schema defines, and nothing else", () => {
-    expect([...PREDICATE_KINDS, ...RAW_PREDICATE_KINDS].toSorted()).toEqual([...new Set(schemaPredicateKinds())].toSorted());
+  it("lists every predicate kind trilean's schema defines, and every expression kind", () => {
+    expect([...PREDICATE_KINDS].toSorted()).toEqual([...new Set(schemaPredicateKinds())].toSorted());
+    expect([...EXPRESSION_KINDS].toSorted()).toEqual([...new Set(schemaExpressionKinds())].toSorted());
   });
 
-  it("builds or shows raw every expression kind trilean's schema defines, and nothing else", () => {
-    expect([...EXPRESSION_KINDS, ...RAW_EXPRESSION_KINDS].toSorted()).toEqual([...new Set(schemaExpressionKinds())].toSorted());
+  it("has a menu label, and a way to create and to read, for each of them", () => {
+    expect(Object.keys(PREDICATE_KIND_LABELS).toSorted()).toEqual([...PREDICATE_KINDS].toSorted());
+    expect(Object.keys(EXPRESSION_KIND_LABELS).toSorted()).toEqual([...EXPRESSION_KINDS].toSorted());
   });
 
-  it.each(PREDICATE_KINDS)("creates a %s predicate that trilean's schema accepts and the form can edit", (kind) => {
+  it.each(PREDICATE_KINDS)("creates a %s predicate that trilean's schema accepts and the form reads as that kind, not as raw JSON", (kind) => {
     const node = createPredicate(kind, NAMES);
 
     expect(PredicateNodeSchema.safeParse(node).success).toBe(true);
     expect(classifyPredicate(node).kind).toBe(kind);
   });
 
-  it.each(EXPRESSION_KINDS)("creates a %s expression that trilean's schema accepts and the form can edit", (kind) => {
+  it.each(EXPRESSION_KINDS)("creates a %s expression that trilean's schema accepts and the form reads as that kind, not as raw JSON", (kind) => {
     const node = createExpression(kind, NAMES);
 
     expect(ExpressionNodeSchema.safeParse(node).success).toBe(true);
     expect(classifyExpression(node).kind).toBe(kind);
+  });
+
+  it("names, among the kinds the library refuses in a model, only kinds the schema defines", () => {
+    for (const kind of REFUSED_PREDICATE_KINDS) expect(PREDICATE_KINDS).toContain(kind);
+    for (const kind of REFUSED_EXPRESSION_KINDS) expect(EXPRESSION_KINDS).toContain(kind);
+  });
+
+  /** A model whose dimensions give each kind of node something it may compare with: text, including the empty text a new literal holds, and numbers. */
+  const accepted = (node: Json): boolean =>
+    execute({
+      op: "validate",
+      model: JSON.stringify({ dimensions: [{ kind: "choice", name: "os", values: ["linux", ""] }, { kind: "choice", name: "n", values: [0, 1] }], rules: [{ excludes: node }] }),
+    }).ok;
+
+  it.each(PREDICATE_KINDS)("is right about the library accepting or refusing a %s predicate in a model", (kind) => {
+    expect(accepted(createPredicate(kind, kind === "compare" ? ["n"] : ["os"]))).toBe(!REFUSED_PREDICATE_KINDS.includes(kind));
+  });
+
+  it.each(EXPRESSION_KINDS)("is right about the library accepting or refusing a %s expression in a model", (kind) => {
+    const inside: Json = { kind: "exists", operand: createExpression(kind, ["os"]) };
+
+    expect(accepted(inside)).toBe(!REFUSED_EXPRESSION_KINDS.includes(kind));
   });
 });
 
@@ -53,10 +92,18 @@ describe("classifyPredicate", () => {
     expect(classifyPredicate({ kind: "memberOf", op: "notIn", operand: REFERENCE_OS, candidates: [TEXT_X] })).toEqual({ kind: "memberOf", op: "notIn", operand: REFERENCE_OS, candidates: [TEXT_X] });
   });
 
-  it("is raw for a kind the form has no controls for, keeping the node", () => {
-    const node: Json = { kind: "some", collection: "things", item: { kind: "exists", operand: REFERENCE_OS } };
+  it("reads a quantifier with and without a filter, and a tree reference", () => {
+    const item: Json = { kind: "exists", operand: REFERENCE_OS };
 
-    expect(classifyPredicate(node)).toEqual({ kind: "raw", json: node, nodeKind: "some" });
+    expect(classifyPredicate({ kind: "some", collection: "things", item })).toEqual({ kind: "some", collection: "things", item, filter: undefined });
+    expect(classifyPredicate({ kind: "every", collection: ["a"], item, filter: item })).toEqual({ kind: "every", collection: ["a"], item, filter: item });
+    expect(classifyPredicate({ kind: "treeReference", key: { any: [1] } })).toEqual({ kind: "treeReference", key: { any: [1] } });
+  });
+
+  it("is raw for a kind the schema does not define, keeping the node", () => {
+    const node: Json = { kind: "mystery", operand: REFERENCE_OS };
+
+    expect(classifyPredicate(node)).toEqual({ kind: "raw", json: node, nodeKind: "mystery" });
   });
 
   it("is raw for a known kind with a key the form does not edit, or a field of the wrong type", () => {
@@ -97,15 +144,35 @@ describe("classifyExpression", () => {
     expect(classifyExpression({ kind: "conditional", hitPolicy: "last", cases: [], fallback: TEXT_X }).kind).toBe("raw");
   });
 
-  it("is raw for a literal or reference that carries a unit, a reference whose key is not text, and a duration with an unknown unit", () => {
-    expect(classifyExpression({ kind: "numberLiteral", value: 1, unit: { m: 1 } }).kind).toBe("raw");
-    expect(classifyExpression({ kind: "reference", key: "os", unit: { m: 1 } }).kind).toBe("raw");
-    expect(classifyExpression({ kind: "reference", key: ["os"] }).kind).toBe("raw");
+  it("is raw for a duration with a unit the schema does not define", () => {
     expect(classifyExpression({ kind: "durationLiteral", value: 1, unit: "fortnight" }).kind).toBe("raw");
   });
 
-  it.each(RAW_EXPRESSION_KINDS)("is raw for a %s node", (kind) => {
-    expect(classifyExpression({ kind })).toMatchObject({ kind: "raw", nodeKind: kind });
+  it("reads the kinds that need a collection, a table or another system", () => {
+    const item: Json = { kind: "numberLiteral", value: 1 };
+
+    expect(classifyExpression({ kind: "call", fn: "max", args: [item] })).toEqual({ kind: "call", fn: "max", args: [item] });
+    expect(classifyExpression({ kind: "lookup", table: "prices", keys: [item] })).toEqual({ kind: "lookup", table: "prices", keys: [item] });
+    expect(classifyExpression({ kind: "fold", collection: "xs", combiner: { mode: "max", item } })).toEqual({ kind: "fold", collection: "xs", filter: undefined, combiner: { mode: "max", item } });
+    expect(classifyExpression({ kind: "fold", collection: "xs", filter: REFERENCE_OS, combiner: { mode: "reduce", initial: item, combine: item } })).toMatchObject({ kind: "fold", combiner: { mode: "reduce", initial: item, combine: item } });
+    expect(classifyExpression({ kind: "accumulator" })).toEqual({ kind: "accumulator" });
+    expect(classifyExpression({ kind: "delegate", system: "rules", payload: [1] })).toEqual({ kind: "delegate", system: "rules", payload: [1] });
+    expect(classifyExpression({ kind: "treeReference", key: 3.5 })).toEqual({ kind: "treeReference", key: 3.5 });
+  });
+
+  it("reads a reference whose key is not text, and a unit on a number, a complex number and a reference", () => {
+    expect(classifyExpression({ kind: "reference", key: ["a"] })).toEqual({ kind: "reference", key: ["a"], unit: undefined });
+    expect(classifyExpression({ kind: "numberLiteral", value: 1, unit: { m: 1, s: -1 } })).toEqual({ kind: "numberLiteral", value: 1, unit: { m: 1, s: -1 } });
+    expect(classifyExpression({ kind: "complexLiteral", re: 1, im: 2, unit: { V: 1 } })).toMatchObject({ form: "rectangular", unit: { V: 1 } });
+    expect(classifyExpression({ kind: "complexLiteral", magnitude: 1, phase: 2, unit: { V: 1 } })).toMatchObject({ form: "polar", unit: { V: 1 } });
+    expect(classifyExpression({ kind: "reference", key: "os", unit: { m: 1 } })).toEqual({ kind: "reference", key: "os", unit: { m: 1 } });
+  });
+
+  it("is raw for data the schema does not accept: a fold with no combiner mode, a unit whose exponent is not a number, a call without a function", () => {
+    expect(classifyExpression({ kind: "fold", collection: "xs", combiner: { mode: "median", item: REFERENCE_OS } }).kind).toBe("raw");
+    expect(classifyExpression({ kind: "numberLiteral", value: 1, unit: { m: "one" } }).kind).toBe("raw");
+    expect(classifyExpression({ kind: "call", args: [] }).kind).toBe("raw");
+    expect(classifyExpression({ kind: "accumulator", extra: 1 }).kind).toBe("raw");
   });
 });
 
@@ -132,6 +199,15 @@ describe("changing kind", () => {
 
   it("starts a node of a family with nothing to carry from defaults", () => {
     expect(changePredicateKind({ kind: "exists", operand: REFERENCE_ARCH }, "and", NAMES)).toEqual({ kind: "and", left: createPredicate("exists", NAMES), right: createPredicate("exists", NAMES) });
+  });
+
+  it("keeps the arguments of a call through a lookup, and the item of a fold through a change of mode", () => {
+    const args: Json[] = [REFERENCE_OS, REFERENCE_ARCH];
+
+    expect(changeExpressionKind({ kind: "call", fn: "f", args }, "lookup", NAMES)).toEqual({ kind: "lookup", table: "", keys: args });
+    expect(changeFoldMode({ mode: "max", item: REFERENCE_OS }, "reduce", NAMES)).toMatchObject({ mode: "reduce", initial: REFERENCE_OS });
+    expect(changeFoldMode({ mode: "reduce", initial: REFERENCE_OS, combine: REFERENCE_ARCH }, "min", NAMES)).toEqual({ mode: "min", item: REFERENCE_OS });
+    expect(changeFoldMode({ mode: "min", item: REFERENCE_OS }, "min", NAMES)).toEqual({ mode: "min", item: REFERENCE_OS });
   });
 
   it("keeps the operands of arithmetic through negation", () => {

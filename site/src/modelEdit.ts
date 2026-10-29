@@ -1,18 +1,17 @@
-import type { Scalar } from "combinatrix";
+import type { ModelData, Scalar } from "combinatrix";
 
-import { unreachable } from "./exhaustive";
-import type { Direction, Json, JsonObject, JsonStep } from "./json";
-import { arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, omit, removeAt, setIn, updateIn } from "./json";
-import type { PredicateKind, RawView } from "./nodes";
+import { keysOf, unreachable } from "./exhaustive";
+import type { Direction, Json, JsonObject, JsonStep, JsonType } from "./json";
+import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, moveEntry, omit, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
+import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
 import { classifyExpression, classifyPredicate, createPredicate } from "./nodes";
 
 /**
  * The editor's model: the JSON a model is, edited by pure functions that each return a new model. Anything the form has no control for is never touched, so it survives every edit. What the form shows of the model is `viewOfModel`; the library, not these functions, decides whether the result is a valid model.
  */
 
-export type DimensionKind = "choice" | "first-valid";
-
-export const DIMENSION_KINDS: readonly DimensionKind[] = ["choice", "first-valid"];
+/** The kinds of dimension the model's data form has: read from the library's `ModelData`, so a kind it gains is a compile error wherever a kind is listed below. */
+export type DimensionKind = ModelData["dimensions"][number]["kind"];
 
 export const DIMENSION_KIND_LABELS: Readonly<Record<DimensionKind, string>> = {
   choice: "free choice",
@@ -20,7 +19,10 @@ export const DIMENSION_KIND_LABELS: Readonly<Record<DimensionKind, string>> = {
 };
 
 /** The key that holds each kind's domain. */
-const DOMAIN_KEYS: Readonly<Record<DimensionKind, string>> = { choice: "values", "first-valid": "candidates" };
+export const DOMAIN_KEYS: Readonly<Record<DimensionKind, string>> = { choice: "values", "first-valid": "candidates" };
+
+/** Every dimension kind, from the record that has to say something about each. */
+export const DIMENSION_KINDS: readonly DimensionKind[] = keysOf(DIMENSION_KIND_LABELS);
 
 export type RuleForm = "requires" | "excludes" | "implies";
 
@@ -188,25 +190,36 @@ export function moveDimension(model: JsonObject, index: number, direction: Direc
   return asModel(moveAt(model, ["dimensions"], index, direction));
 }
 
-/** Every reference to a dimension in a predicate, renamed. A node the form cannot edit is returned as it is: its references are not the form's to rewrite. */
+/** A node with the children it has replaced by `change` of each, and every other key kept. */
+function withChildren(node: Json, changes: Readonly<Record<string, Json | undefined>>): Json {
+  return { ...objectOf(node), ...Object.fromEntries(Object.entries(changes).filter((entry): entry is [string, Json] => entry[1] !== undefined)) };
+}
+
+/** Every reference to a dimension in a predicate, renamed. Data that is not a node the schema accepts is returned as it is: its references are not the form's to rewrite. */
 function renameInPredicate(node: Json, from: string, to: string): Json {
   const view = classifyPredicate(node);
+  const predicate = (child: Json): Json => renameInPredicate(child, from, to);
+  const expression = (child: Json): Json => renameInExpression(child, from, to);
   switch (view.kind) {
     case "not":
-      return { ...objectOf(node), operand: renameInPredicate(view.operand, from, to) };
+      return withChildren(node, { operand: predicate(view.operand) });
     case "and":
     case "or":
-      return { ...objectOf(node), left: renameInPredicate(view.left, from, to), right: renameInPredicate(view.right, from, to) };
+      return withChildren(node, { left: predicate(view.left), right: predicate(view.right) });
     case "allOf":
     case "anyOf":
-      return { ...objectOf(node), operands: view.operands.map((operand) => renameInPredicate(operand, from, to)) };
+      return withChildren(node, { operands: view.operands.map(predicate) });
     case "compare":
     case "textCompare":
-      return { ...objectOf(node), left: renameInExpression(view.left, from, to), right: renameInExpression(view.right, from, to) };
+      return withChildren(node, { left: expression(view.left), right: expression(view.right) });
     case "memberOf":
-      return { ...objectOf(node), operand: renameInExpression(view.operand, from, to), candidates: view.candidates.map((candidate) => renameInExpression(candidate, from, to)) };
+      return withChildren(node, { operand: expression(view.operand), candidates: view.candidates.map(expression) });
     case "exists":
-      return { ...objectOf(node), operand: renameInExpression(view.operand, from, to) };
+      return withChildren(node, { operand: expression(view.operand) });
+    case "some":
+    case "every":
+      return withChildren(node, { item: predicate(view.item), filter: view.filter === undefined ? undefined : predicate(view.filter) });
+    case "treeReference":
     case "raw":
       return node;
     default:
@@ -216,26 +229,41 @@ function renameInPredicate(node: Json, from: string, to: string): Json {
 
 function renameInExpression(node: Json, from: string, to: string): Json {
   const view = classifyExpression(node);
+  const predicate = (child: Json): Json => renameInPredicate(child, from, to);
+  const expression = (child: Json): Json => renameInExpression(child, from, to);
   switch (view.kind) {
     case "reference":
-      return view.key === from ? { ...objectOf(node), key: to } : node;
+      return view.key === from ? withChildren(node, { key: to }) : node;
     case "arithmetic":
-      return { ...objectOf(node), left: renameInExpression(view.left, from, to), right: renameInExpression(view.right, from, to) };
+      return withChildren(node, { left: expression(view.left), right: expression(view.right) });
     case "negate":
-      return { ...objectOf(node), operand: renameInExpression(view.operand, from, to) };
+      return withChildren(node, { operand: expression(view.operand) });
+    case "call":
+      return withChildren(node, { args: view.args.map(expression) });
+    case "lookup":
+      return withChildren(node, { keys: view.keys.map(expression) });
     case "conditional":
-      return { ...objectOf(node), cases: view.cases.map((item) => ({ when: renameInPredicate(item.when, from, to), then: renameInExpression(item.then, from, to) })), fallback: renameInExpression(view.fallback, from, to) };
+      return withChildren(node, { cases: view.cases.map((item) => ({ when: predicate(item.when), then: expression(item.then) })), fallback: expression(view.fallback) });
+    case "fold":
+      return withChildren(node, { filter: view.filter === undefined ? undefined : predicate(view.filter), combiner: renameInCombiner(view.combiner, expression) });
     case "textLiteral":
     case "instantLiteral":
     case "numberLiteral":
     case "booleanLiteral":
     case "durationLiteral":
     case "complexLiteral":
+    case "accumulator":
+    case "delegate":
+    case "treeReference":
     case "raw":
       return node;
     default:
       return unreachable(view);
   }
+}
+
+function renameInCombiner(combiner: FoldCombiner, expression: (child: Json) => Json): Json {
+  return combiner.mode === "reduce" ? { mode: combiner.mode, initial: expression(combiner.initial), combine: expression(combiner.combine) } : { mode: combiner.mode, item: expression(combiner.item) };
 }
 
 function objectOf(json: Json): JsonObject {
@@ -333,6 +361,14 @@ export function setValue(model: JsonObject, index: number, position: number, val
   return asModel(setIn(model, [...domainPath(model, index), position], value));
 }
 
+/** The model with the value at a position of a dimension's domain converted to the nearest value of another type, from the value the model holds now. */
+export function convertValueAt(model: JsonObject, index: number, position: number, type: ScalarType): JsonObject {
+  const value = getIn(model, [...domainPath(model, index), position]);
+  if (value === undefined || !isScalar(value)) throw new Error(`no value at position ${String(position)} of dimension ${String(index)}`);
+
+  return setValue(model, index, position, convertScalar(value, type));
+}
+
 export function scalarType(value: Scalar): ScalarType {
   if (value === null) return "null";
   if (typeof value === "string") return "text";
@@ -366,6 +402,23 @@ export function convertScalar(value: Scalar, type: ScalarType): Scalar {
       return typeof value === "number" ? value !== 0 : value === true;
     case "null":
       return null;
+    default:
+      return unreachable(type);
+  }
+}
+
+/** A JSON value of another type that is the nearest to this one: scalars convert as `convertScalar` does, a list or object is kept when it is the type asked for, and a value of any other type becomes an empty one. */
+export function convertJson(value: Json, type: JsonType): Json {
+  switch (type) {
+    case "text":
+    case "number":
+    case "boolean":
+    case "null":
+      return convertScalar(isScalar(value) ? value : null, type);
+    case "list":
+      return isJsonArray(value) ? value : [];
+    case "object":
+      return isJsonObject(value) && !isJsonArray(value) ? value : {};
     default:
       return unreachable(type);
   }
@@ -437,6 +490,26 @@ export function setNode(model: JsonObject, path: readonly JsonStep[], node: Json
 /** The model with the node at `path` replaced by a function of it. */
 export function updateNode(model: JsonObject, path: readonly JsonStep[], change: (current: Json) => Json): JsonObject {
   return asModel(updateIn(model, path, change));
+}
+
+/** The model with a key added, at the end, to the object at `path`: how an optional field of a node is added. Throws when the key is already there. */
+export function addKey(model: JsonObject, path: readonly JsonStep[], key: string, value: Json): JsonObject {
+  return asModel(addEntry(model, path, key, value));
+}
+
+/** The model without a key of the object at `path`: how an optional field of a node is removed. */
+export function removeKey(model: JsonObject, path: readonly JsonStep[], key: string): JsonObject {
+  return asModel(removeEntry(model, path, key));
+}
+
+/** The model with a key of the object at `path` renamed in place. Throws when the new key is another entry's. */
+export function renameKeyAt(model: JsonObject, path: readonly JsonStep[], from: string, to: string): JsonObject {
+  return asModel(renameEntry(model, path, from, to));
+}
+
+/** The model with an entry of the object at `path` swapped with its neighbour. */
+export function moveKey(model: JsonObject, path: readonly JsonStep[], key: string, direction: Direction): JsonObject {
+  return asModel(moveEntry(model, path, key, direction));
 }
 
 export function addListItem(model: JsonObject, listPath: readonly JsonStep[], item: Json): JsonObject {

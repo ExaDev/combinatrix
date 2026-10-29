@@ -515,3 +515,36 @@ fieldset legend {
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+.item-buttons {
+  flex-wrap: wrap;
+}
+
+.json-value,
+.node-part,
+.entries {
+  min-width: 0;
+  margin: 4px 0;
+}
+
+.node-part > strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.entry-list {
+  margin: 4px 0;
+  padding-left: 1.25rem;
+}
+
+.entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 8px;
+  margin: 6px 0;
+}
+
+.entry > * {
+  min-width: 0;
+}

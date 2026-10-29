@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Json } from "./json";
-import { arrayAt, getIn, insertAt, isJson, isJsonArray, isJsonObject, moveAt, objectAt, omit, parseJson, removeAt, setIn, updateIn } from "./json";
+import { addEntry, arrayAt, getIn, insertAt, isJson, isJsonArray, isJsonObject, jsonTypeOf, keysAt, moveAt, moveEntry, objectAt, omit, parseJson, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
 
 /** A fraction, the length of the three-item list below, which is also the first position past its end, and a position far past it. */
 const FRACTION = 1.5;
@@ -120,5 +120,40 @@ describe("list edits", () => {
     expect(isJsonArray(arrayAt(DOCUMENT, ["list"]))).toBe(true);
     expect(() => objectAt(DOCUMENT, ["list"])).toThrow("expected an object");
     expect(() => arrayAt(DOCUMENT, ["other"])).toThrow("expected an array");
+  });
+});
+
+describe("object entry edits", () => {
+  const object = ["other"];
+  const entries: Json = { other: { a: 1, b: 2, c: LIST_LENGTH } };
+
+  it("adds an entry at the end, and refuses a key already there", () => {
+    expect(keysAt(addEntry(entries, object, "d", 0), object)).toEqual(["a", "b", "c", "d"]);
+    expect(() => addEntry(entries, object, "a", 0)).toThrow("already has the key a");
+  });
+
+  it("removes an entry, and refuses a key that is not there", () => {
+    expect(keysAt(removeEntry(entries, object, "b"), object)).toEqual(["a", "c"]);
+    expect(() => removeEntry(entries, object, "z")).toThrow("no key z");
+  });
+
+  it("renames a key in place, keeping its value and the order, and refuses another entry's key", () => {
+    expect(objectAt(renameEntry(entries, object, "b", "z"), object)).toEqual({ a: 1, z: 2, c: LIST_LENGTH });
+    expect(keysAt(renameEntry(entries, object, "b", "z"), object)).toEqual(["a", "z", "c"]);
+    expect(renameEntry(entries, object, "b", "b")).toEqual(entries);
+    expect(() => renameEntry(entries, object, "b", "c")).toThrow("already has the key c");
+    expect(() => renameEntry(entries, object, "q", "r")).toThrow("no key q");
+  });
+
+  it("swaps an entry with its neighbour, and leaves the object at the end it is moving towards", () => {
+    expect(keysAt(moveEntry(entries, object, "b", "earlier"), object)).toEqual(["b", "a", "c"]);
+    expect(keysAt(moveEntry(entries, object, "b", "later"), object)).toEqual(["a", "c", "b"]);
+    expect(moveEntry(entries, object, "a", "earlier")).toEqual(entries);
+    expect(moveEntry(entries, object, "c", "later")).toEqual(entries);
+    expect(() => moveEntry(entries, object, "q", "later")).toThrow("no key q");
+  });
+
+  it("names the type of any JSON value", () => {
+    expect([jsonTypeOf("a"), jsonTypeOf(1), jsonTypeOf(true), jsonTypeOf(null), jsonTypeOf([]), jsonTypeOf({})]).toEqual(["text", "number", "boolean", "null", "list", "object"]);
   });
 });
