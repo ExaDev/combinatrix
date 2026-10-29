@@ -10,7 +10,8 @@ export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelErr
 export type { LimitBound } from "./errors";
 export { explain, explainData } from "./explain";
 export type { DataExplanation, DataReason, ExactRecord, Explanation, Reason } from "./explain";
-export { parseRules } from "./guards";
+export { isModelData, parseModel, parseRules } from "./guards";
+export type { ModelData } from "./guards";
 export { defineModel } from "./model";
 export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model";
 export { at, indexOf, indexOfData, samples } from "./rank";
