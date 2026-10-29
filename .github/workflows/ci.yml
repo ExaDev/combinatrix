@@ -186,19 +186,26 @@ jobs:
       - name: Install the tarball into the scratch project
         working-directory: ${{ runner.temp }}/scratch
         run: npm install "$RUNNER_TEMP"/pack/*.tgz # zizmor: ignore[adhoc-packages]
-      - name: Compose a document with extends through the installed package
+      - name: Enumerate a constrained model through the installed package
         working-directory: ${{ runner.temp }}/scratch
         run: |
           cat > check.mjs <<'EOF'
           import assert from 'node:assert/strict';
-          import { readFile, writeFile } from 'node:fs/promises';
-          import { composeJson } from '@exadev/json-compose';
+          import { choice, collect, count, defineModel, explain, firstValid, LimitExceededError } from 'combinatrix';
 
-          await writeFile('base.json', '{ "a": "base", "b": "base" }');
-          await writeFile('main.json', '{ "extends": "./base.json", "b": "main" }');
-          const composed = await composeJson('main.json', { read: (path) => readFile(path, 'utf8') });
-          assert.deepEqual(composed.value, { a: 'base', b: 'main' });
-          assert.deepEqual(composed.originOf('/a'), { file: 'base.json', pointer: '/a' });
+          const model = defineModel({
+            dimensions: [choice('feature', [undefined, 'beta']), firstValid('channel', [undefined, 'stable', 'beta'])],
+            rules: [{ requires: { is: ['channel', 'beta'] }, when: { is: ['feature', 'beta'] } }],
+          });
+          const combinations = collect(model, { limit: 2 });
+          assert.deepEqual(combinations.map((combination) => combination.values), [
+            { feature: undefined, channel: undefined },
+            { feature: 'beta', channel: 'beta' },
+          ]);
+          assert.match(combinations[0].id, /^[0-9a-f]{16}$/);
+          assert.equal(count(model, { limit: 2 }), 2);
+          assert.throws(() => count(model, { limit: 1 }), LimitExceededError);
+          assert.equal(explain(model, { feature: 'beta', channel: 'stable' }).valid, false);
           EOF
           node check.mjs
 
