@@ -1,3 +1,37 @@
+## [2.0.3](https://github.com/ExaDev/combinatrix/compare/v2.0.2...v2.0.3) (2026-10-29)
+
+### Features
+
+* **site:** add pure functions that edit a model held as JSON ([ef098d3](https://github.com/ExaDev/combinatrix/commit/ef098d3984d959dd62748e707dbf15f14d99ffb8))
+* **site:** add the engine protocol, link codec and saved models ([df01cc5](https://github.com/ExaDev/combinatrix/commit/df01cc548d0c7a82fc871aab5b2a7609a5370a1e))
+* **site:** add the explorer page ([67e7c61](https://github.com/ExaDev/combinatrix/commit/67e7c61e2cd6062db46f42194dd4bec8b3f57c29))
+* **site:** add the form that draws a model as cards of controls ([a84f8a2](https://github.com/ExaDev/combinatrix/commit/a84f8a2bce4288b6722c7b464e8c9f81ce793673))
+* **site:** edit the model through the form, in step with the JSON view ([2da8e9a](https://github.com/ExaDev/combinatrix/commit/2da8e9abc1a7d28c58acac6eb4416ce9c373020b))
+* **site:** explain each operation in plain words on the page ([e7d44de](https://github.com/ExaDev/combinatrix/commit/e7d44ded2d5e305d950dd32e5ac40bc5327feba2))
+* **site:** give every kind in the schema a widget, with a test that keeps it so ([044efc3](https://github.com/ExaDev/combinatrix/commit/044efc30d3a379468b06710ceb0208033283a57c))
+
+### Documentation
+
+* **site:** describe editing the model with the form ([56abb15](https://github.com/ExaDev/combinatrix/commit/56abb15333de052e0fb9670c5c87ed2f3d4865c4))
+* **site:** link the explorer from the README ([0ddbfe3](https://github.com/ExaDev/combinatrix/commit/0ddbfe3d29a11937e833ea202aab24788190a5f3))
+* **site:** say the form has a control for every kind of node ([a93f0d4](https://github.com/ExaDev/combinatrix/commit/a93f0d4110998ba08c36da0ae7a82e6625aa4139))
+
+### Tests
+
+* derive slow tests' timeouts from the work they do ([e674acf](https://github.com/ExaDev/combinatrix/commit/e674acfab48380e34acef5bb84ddef561a6dbff6))
+* derive the cancellation, condition and trilean budget tests' timeouts from their work ([60827be](https://github.com/ExaDev/combinatrix/commit/60827be094f4cb8e1f7ebeda83b68522ae6ac500))
+* derive the JSON Schema suites' timeouts from their property runs ([86a6437](https://github.com/ExaDev/combinatrix/commit/86a643769207901a23205ff0bc292856c21cfd7d))
+* **site:** check that changing a rule's form or a dimension's kind keeps the rest of it ([961a282](https://github.com/ExaDev/combinatrix/commit/961a282f6b16faed772de0440139dbfdacfb2a75))
+
+### Build System
+
+* **site:** add jsdom to draw the form's widgets in tests ([02c81a9](https://github.com/ExaDev/combinatrix/commit/02c81a9b9353a0aa7a937bab525178e7f7ae6f21))
+* **site:** add vite and exempt site-scoped commits from releases ([a84e049](https://github.com/ExaDev/combinatrix/commit/a84e049add98db50afdad1f95b17df1aa164f493))
+
+### Continuous Integration
+
+* **site:** build the site in CI and deploy it to GitHub Pages ([72cfe3c](https://github.com/ExaDev/combinatrix/commit/72cfe3c3befc7dd65d5037a1875a51eb07ca991a))
+
 ## [2.0.2](https://github.com/ExaDev/combinatrix/compare/v2.0.1...v2.0.2) (2026-10-29)
 
 ### Performance Improvements
