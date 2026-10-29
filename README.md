@@ -236,7 +236,7 @@ console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true
 */
 ```
 
-By default `count`, `collect` and `diagnose` run to the end, however large the solution set is. A `limit` states how large a result the caller will accept: reaching it is fine, and going past it throws `LimitExceededError` as soon as it is passed, so `collect` never materialises more than the limit and `count` stops searching.
+By default `count`, `collect` and `diagnose` run to the end, however large the solution set is. A `limit` states how large a result the caller will accept: reaching it is fine, and going past it throws `LimitExceededError` as soon as it is passed, so `collect` never materialises more than the limit and `count` stops searching. The error's `bound` says what the limit bounded, here the solution set, and its message is worded from it.
 
 ```ts
 // examples/07-limit.ts
@@ -259,14 +259,16 @@ try {
 } catch (error) {
   if (!(error instanceof LimitExceededError)) throw error;
 
+  console.log(error.bound);
   console.log(error.message);
 }
 /*
+solution-set
 the solution set has more than 5 combinations
 */
 ```
 
-A limit says nothing about how long a search takes, which depends on how much the constraints prune. To bound that, pass an `AbortSignal`: the search stops and throws the signal's reason, and nothing partial is returned. This one aborts from inside a predicate, so the run does not depend on timing; a caller would more often pass `AbortSignal.timeout(ms)` or the signal of a request it serves.
+A limit says nothing about how long a search takes, which depends on how much the constraints prune. To bound that, pass an abort signal, such as an `AbortSignal`: the search stops and throws the signal's reason, and nothing partial is returned. This one aborts from inside a predicate, so the run does not depend on timing; a caller would more often pass `AbortSignal.timeout(ms)` or the signal of a request it serves.
 
 ```ts
 // examples/08-cancellation.ts
@@ -372,20 +374,68 @@ for (const { values } of samples(model, { random })) {
 */
 ```
 
+A model's types reach its results as well as its inputs. A computed dimension given the dimensions it reads, rather than their names, receives each value with that dimension's own type, so `values.os` below can only be one of its three systems. Each reason `explain` gives is a union keyed by dimension, so testing `reason.dimension` narrows `reason.value` and `reason.expected` to that dimension's values, and the dead values `diagnose` lists narrow the same way.
+
+```ts
+// examples/10-typed.ts
+import { choice, collect, computed, defineModel, explain } from "combinatrix";
+
+const os = choice("os", ["linux", "macos", "windows"]);
+const arch = choice("arch", ["x64", "arm64"]);
+
+const model = defineModel({
+  dimensions: [
+    os,
+    arch,
+    // Given as the dimensions themselves, the reads arrive with their own value types.
+    computed("target", { reads: [os, arch], compute: (values) => `${values.arch}-${values.os === "macos" ? "apple-darwin" : values.os}` }),
+  ],
+  rules: [{ name: "no arm64 on windows", excludes: { all: [{ is: ["os", "windows"] }, { is: ["arch", "arm64"] }] } }],
+});
+
+console.log(collect(model).map(({ values }) => values.target));
+/*
+[
+  'x64-linux',
+  'arm64-linux',
+  'x64-apple-darwin',
+  'arm64-apple-darwin',
+  'x64-windows'
+]
+*/
+
+const explanation = explain(model, { os: "windows", arch: "arm64", target: "x64-windows" });
+if (!explanation.valid) {
+  for (const reason of explanation.reasons) {
+    // Testing the dimension narrows the value to that dimension's own values.
+    if (reason.kind === "derived" && reason.dimension === "target") console.log(reason.expected);
+    if (reason.kind === "constraint") console.log(reason.rule?.name);
+  }
+}
+/*
+arm64-windows
+no arm64 on windows
+*/
+```
+
 ## API
 
 ### Typed and untyped routes
 
-A model written in code is checked by the compiler as far as its types can show: domains are non-empty, dimension names are unique, every rule, condition, `activeWhen`, computed `reads` and `predicate` names only dimensions declared where it may (before it, or before a first-valid dimension it constrains) and compares each with values from that dimension's own domain, testing `unset` only where the dimension's type includes `undefined`, and `explain` takes exactly one of the model's combinations (`CombinationOf<typeof model>`). A refused `defineModel` argument names each defect in an `error` property it lacks. Whether the rules can be satisfied and which values are dead needs a search, so that stays with `diagnose` at runtime.
+A model written in code is checked by the compiler as far as its types can show: domains are non-empty, dimension names are unique, every rule, condition, `activeWhen`, computed `reads` and `predicate` names only dimensions declared where it may (before it, or before a first-valid dimension it constrains) and compares each with values from that dimension's own domain, testing `unset` only where the dimension's type includes `undefined`, and `explain` takes exactly one of the model's combinations (`CombinationOf<typeof model>`). A refused `defineModel` argument names each defect in an `error` property it lacks.
 
-Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: rules parsed from JSON go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
+The results are typed by the same dimensions. `explain`'s reasons and `diagnose`'s dead values are unions keyed by dimension, so testing `dimension` narrows `value`. A computed dimension's `compute` and a `predicate`'s `test` receive exactly the dimensions in `reads`, each with its own value type where `reads` gives the dimension itself, and as any `Value` where it gives only a name; `defineModel` refuses a `compute` whose parameter does not accept every value its reads can hold. A strategy typed `Strategy<CombinationOf<typeof model>>` passes typed assignments to `completions` and `test`, gets typed combinations back and must yield them, and is refused for a model of another type.
+
+What the types cannot show stays a runtime check. Whether the rules can be satisfied and which values are dead needs a search, so that stays with `diagnose`. A strategy's assignment map types its keys and its values but cannot pair each key with its own dimension's values, so a value another dimension takes agrees with no combination; and every row a strategy yields is still checked against the model, typed or not. A dimension given to a standalone `predicate` as itself is held to its own values when the predicate is evaluated, since a strategy's `test` can pass anything. A record that bypasses the types of `explain` or `indexOf` (a cast, or untyped JavaScript) is refused at runtime rather than explained: `explain` throws `TypeError`.
+
+Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: rules parsed from JSON go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`, whose reasons name dimensions as strings and type what is not even a value as `unknown`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
 
 ### Dimensions
 
 - `choice(name, values, options?)`: a free dimension over `values`, in order. Include `undefined` to make unset one of the choices.
 - `sampled(name, sampler, options?)`: a free dimension whose values are the finite points `sampler()` returns, called once when the model is defined. This is the only way a continuous range enters a model.
 - `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
-- `computed(name, { reads, compute, activeWhen? })`: a derived dimension computed by a pure function of the dimensions in `reads`, each declared before it.
+- `computed(name, { reads, compute, activeWhen? })`: a derived dimension computed by a pure function of the dimensions in `reads`, each declared before it and given by name or as the dimension itself. `compute` receives exactly those dimensions, each typed by its own values when given as itself.
 
 `options.activeWhen` is a condition on dimensions declared before this one. Where it does not hold, the dimension is unset, and its type gains `undefined`.
 
@@ -426,17 +476,17 @@ The order `combinations` produces with `full` is fixed, so each combination has 
 
 ### Diagnostics
 
-- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, an active conditional dimension left unset when its values do not list unset, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule).
-- `explainData(model, data)`: the same for untyped data, also reporting data that is not an object, an unknown or missing dimension, a value outside its domain (never passed on to a constraint) and something that is not a value at all. Derived dimensions may be left out.
-- `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes. It counts as `count` does and finds the dead values from the same remembered counts (a value is dead when nothing is counted under it wherever it is offered), so it costs about as much as `count` and never produces the combinations.
+- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, an active conditional dimension left unset when its values do not list unset, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule). It returns `Explanation<CombinationOf<typeof model>>`, whose reasons are keyed by dimension.
+- `explainData(model, data)`: the same for untyped data, also reporting data that is not an object, an unknown or missing dimension, a value outside its domain (never passed on to a constraint) and something that is not a value at all. Derived dimensions may be left out. It returns a `DataExplanation`, whose `DataReason`s name dimensions as strings.
+- `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes, each a `DeadValue` keyed by dimension. It counts as `count` does and finds the dead values from the same remembered counts (a value is dead when nothing is counted under it wherever it is offered), so it costs about as much as `count` and never produces the combinations.
 
 ### Errors
 
-Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit`), `ConstraintContractError` and `StrategyError`. A limit or index that is not a non-negative integer throws `RangeError`, as do a count past `Number.MAX_SAFE_INTEGER` where an exact index is needed and a `random` source that returns anything but an integer below its bound.
+Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit` and the `bound` it limited: `solution-set` for `count`, `diagnose` and `full`, `selection` for what another strategy selects, and `rows` or `steps` for a strategy's own cap, each with its own message), `ConstraintContractError` and `StrategyError`. A limit or index that is not a non-negative integer throws `RangeError`, as do a count past `Number.MAX_SAFE_INTEGER` where an exact index is needed and a `random` source that returns anything but an integer below its bound.
 
 ### Cancellation
 
-`count`, `collect`, `diagnose`, `combinations`, `at`, `indexOf`, `indexOfData` and `samples` take an optional `signal: AbortSignal`. When it aborts they throw `signal.reason`, as `signal.throwIfAborted()` does, and return nothing: `collect` returns no array and `diagnose` no diagnosis. A signal that is already aborted throws before any work, on the first advance for `combinations` and `samples`. The search reads the signal at a fixed interval of steps, a step being one visit to a node of the search tree, so a bounded amount of work runs after the abort; `combinations` also checks it before producing each combination, and `samples` before each draw.
+`count`, `collect`, `diagnose`, `combinations`, `at`, `indexOf`, `indexOfData` and `samples` take an optional `signal`, typed `AbortSignalLike`: `aborted`, `reason` and `throwIfAborted()`, declared by the library so that a real `AbortSignal` satisfies it in every runtime and a consumer compiles without the DOM library or a runtime's type package. When it aborts they throw `signal.reason`, as `signal.throwIfAborted()` does, and return nothing: `collect` returns no array and `diagnose` no diagnosis. A signal that is already aborted throws before any work, on the first advance for `combinations` and `samples`. The search reads the signal at a fixed interval of steps, a step being one visit to a node of the search tree, so a bounded amount of work runs after the abort; `combinations` also checks it before producing each combination, and `samples` before each draw.
 
 ## Extending
 
@@ -454,20 +504,22 @@ interface Constraint {
 
 The assignment maps each assigned dimension to its value; a dimension absent from the map is unassigned, and one mapped to `undefined` is set to unset. An implementation names every dimension it reads in `dependencies`, is pure, and is monotone: a `valid` or `invalid` answer on a partial assignment must hold for every extension of it, so answering `unknown` is always safe before every dependency is assigned. Once every dependency is assigned it must answer `valid` or `invalid`; `unknown` then throws `ConstraintContractError`. Pass implementations as `constraints` to `defineModel`.
 
-`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, it is bound to the model and `test` receives each read dimension's own value type; the standalone form passes plain `Value`s.
+`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, it is bound to the model and `test` receives each read dimension's own value type. The standalone form passes each dimension given in `reads` as itself with its own value type, answering `invalid` without calling `test` for a value it cannot hold, and each one given by name as a plain `Value`.
 
 ### Strategies
 
 A strategy chooses which combinations to produce:
 
 ```ts
-interface Strategy {
+interface Strategy<T extends ValueRecord = ValueRecord> {
   readonly name: string;
-  readonly select: (context: StrategyContext) => Iterable<Readonly<Record<string, Value>>>;
+  readonly select: (context: StrategyContext<T>) => Iterable<T>;
 }
 ```
 
-The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explainData`, and one outside the solution set throws `StrategyError`.
+The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A strategy that caps what it holds or does throws `new LimitExceededError(limit, bound)` naming what it capped, `rows` or `steps`, so the message is about that and not the solution set. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explainData`, and one outside the solution set throws `StrategyError`.
+
+`T` is the type of one combination of the model. `Strategy`, unparameterised, is written for any model: its assignments are `ReadonlyMap<string, Value>` and its rows `ValueRecord`. `Strategy<CombinationOf<typeof model>>` is written for one model: its assignments and rows are typed by that model's dimensions, and passing it with a model of another type is a compile error.
 
 ## Development
 
@@ -480,7 +532,7 @@ Node 22 or later, pnpm. ESM only.
 | `pnpm test` | Vitest, tests colocated as `*.unit.test.ts` |
 | `pnpm build` | tsdown into `dist` |
 
-CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API.
+CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types depend on neither.
 
 ## Releases
 
