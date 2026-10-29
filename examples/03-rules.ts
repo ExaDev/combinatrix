@@ -10,7 +10,7 @@ const model = defineModel({
   rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 16
 */

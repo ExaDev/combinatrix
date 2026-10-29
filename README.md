@@ -37,7 +37,7 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 6
 */
@@ -67,12 +67,12 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 18
 */
 
-const [first] = collect(model, { limit: 100 });
+const [first] = collect(model);
 console.log(first?.values);
 /*
 { os: 'linux', arch: 'x64', runtime: undefined }
@@ -94,7 +94,7 @@ const model = defineModel({
   rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 16
 */
@@ -139,7 +139,7 @@ const model = defineModel({
   rules: [{ name: "windows has no zstd", excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
 });
 
-for (const { values } of collect(model, { limit: 100 })) console.log(values);
+for (const { values } of collect(model)) console.log(values);
 /*
 { os: 'linux', compress: undefined, codec: undefined }
 { os: 'linux', compress: true, codec: 'zstd' }
@@ -165,12 +165,12 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 2
 */
 
-console.log(diagnose(model, { limit: 100 }));
+console.log(diagnose(model));
 /*
 {
   status: 'satisfiable',
@@ -201,7 +201,7 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 1000 }));
+console.log(count(model));
 /*
 24
 */
@@ -233,6 +233,78 @@ console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true
     }
   ]
 }
+*/
+```
+
+By default `count`, `collect` and `diagnose` run to the end, however large the solution set is. A `limit` states how large a result the caller will accept: reaching it is fine, and going past it throws `LimitExceededError` as soon as it is passed, so `collect` never materialises more than the limit and `count` stops searching.
+
+```ts
+// examples/07-limit.ts
+import { choice, collect, count, defineModel, LimitExceededError } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+  ],
+});
+
+console.log(count(model, { limit: 6 }));
+/*
+6
+*/
+
+try {
+  collect(model, { limit: 5 });
+} catch (error) {
+  if (!(error instanceof LimitExceededError)) throw error;
+
+  console.log(error.message);
+}
+/*
+the solution set has more than 5 combinations
+*/
+```
+
+A limit says nothing about how long a search takes, which depends on how much the constraints prune. To bound that, pass an `AbortSignal`: the search stops and throws the signal's reason, and nothing partial is returned. This one aborts from inside a predicate, so the run does not depend on timing; a caller would more often pass `AbortSignal.timeout(ms)` or the signal of a request it serves.
+
+```ts
+// examples/08-cancellation.ts
+import { choice, count, defineModel, predicate } from "combinatrix";
+
+const SIZE = 1000;
+const ABORT_AT = 10;
+const controller = new AbortController();
+let evaluations = 0;
+
+const model = defineModel({
+  dimensions: [choice("n", Array.from({ length: SIZE }, (_, index) => index))],
+  constraints: [
+    predicate({
+      reads: ["n"],
+      test: () => {
+        evaluations += 1;
+        // Abort from inside the search, so the run is the same every time.
+        if (evaluations === ABORT_AT) controller.abort(new Error("enough"));
+
+        return true;
+      },
+    }),
+  ],
+});
+
+try {
+  count(model, { signal: controller.signal });
+} catch (error) {
+  console.log(error === controller.signal.reason);
+}
+/*
+true
+*/
+
+console.log(evaluations < SIZE);
+/*
+true
 */
 ```
 
@@ -269,18 +341,22 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 ### Enumerating
 
-- `combinations(model, { strategy?, limit? })`: a generator of `{ id, values }`, computing nothing until advanced. The order is deterministic: for `full`, lexicographic in declaration order with the first dimension varying slowest. The id is the 64-bit FNV-1a hash of the combination's canonical form, so equal combinations have equal ids whatever produced them.
-- `collect(model, { limit, strategy? })`: the same as an array, throwing `LimitExceededError` rather than materialising more than `limit`.
-- `count(model, { limit })`: the size of the solution set without building it, throwing `LimitExceededError` as soon as the count passes `limit`. A suffix of dimensions that no constraint, condition or candidate list touches is counted as a product without being visited.
+- `combinations(model, { strategy?, limit?, signal? })`: a generator of `{ id, values }`, computing nothing until advanced. The order is deterministic: for `full`, lexicographic in declaration order with the first dimension varying slowest. The id is the 64-bit FNV-1a hash of the combination's canonical form, so equal combinations have equal ids whatever produced them. An aborted `signal` makes the next advance throw its reason.
+- `collect(model, { strategy?, limit?, signal? })`: the same as an array. With a `limit` it throws `LimitExceededError` rather than materialising more than that; with none it materialises the whole selection, so memory grows with the size of the solution set.
+- `count(model, { limit?, signal? })`: the size of the solution set without building it, throwing `LimitExceededError` as soon as the count passes `limit` when one is given. A suffix of dimensions that no constraint, condition or candidate list touches is counted as a product without being visited.
 
 ### Diagnostics
 
 - `explain(model, record)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the record is not in the solution set: an unknown or missing dimension, a value outside its domain, a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule). Derived dimensions may be left out of the record.
-- `diagnose(model, { limit })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes.
+- `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes.
 
 ### Errors
 
 Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit`), `ConstraintContractError` and `StrategyError`. A limit that is not a non-negative integer throws `RangeError`.
+
+### Cancellation
+
+`count`, `collect`, `diagnose` and `combinations` take an optional `signal: AbortSignal`. When it aborts they throw `signal.reason`, as `signal.throwIfAborted()` does, and return nothing: `collect` returns no array and `diagnose` no diagnosis. A signal that is already aborted throws before any work, on the first advance for `combinations`. The search reads the signal at a fixed interval of steps, a step being one visit to a node of the search tree, so a bounded amount of work runs after the abort; `combinations` also checks it before producing each combination.
 
 ## Extending
 
@@ -311,7 +387,7 @@ interface Strategy {
 }
 ```
 
-The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explain`, and one outside the solution set throws `StrategyError`.
+The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explain`, and one outside the solution set throws `StrategyError`.
 
 ## Development
 

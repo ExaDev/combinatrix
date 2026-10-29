@@ -8,7 +8,7 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 6
 */

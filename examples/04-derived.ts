@@ -11,7 +11,7 @@ const model = defineModel({
   rules: [{ name: "windows has no zstd", excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
 });
 
-for (const { values } of collect(model, { limit: 100 })) console.log(values);
+for (const { values } of collect(model)) console.log(values);
 /*
 { os: 'linux', compress: undefined, codec: undefined }
 { os: 'linux', compress: true, codec: 'zstd' }
