@@ -22,6 +22,10 @@ Three things make the solution set the one you mean rather than the raw product:
 
 Constraints are evaluated three-valued on partial assignments, answering valid, invalid or unknown. The search assigns dimensions in declaration order and abandons a branch as soon as a constraint answers invalid, which is sound because every constraint is monotone: a definite answer on a partial assignment is the answer on every completion of it. A naive generate-then-filter enumeration is kept as the reference, and the search is tested to produce exactly its output, in the same order.
 
+## Explorer
+
+An [explorer](https://exadev.github.io/combinatrix/) runs the library in the browser: edit a model as JSON, then count its combinations, list them up to a limit, find dead values, explain why a combination is excluded, build a covering array and check it, and move between a combination and its index. The engine runs in a Web Worker, so the page stays responsive and Cancel stops a long operation. Copy link puts the model, compressed, in the link's fragment, which a browser never sends to a server, so a link is self-contained; `?gist=<id>` loads the first `.json` file of a public gist for a model too large for a link. Models can be saved in the browser and imported or exported as `.json` files. Its source is in `site/` and is not part of the published package.
+
 ## Examples
 
 Each example is a file in `examples/` that the test suite runs, and the block comment after each statement that prints is what it printed, so the output shown is always the real output.
@@ -675,6 +679,7 @@ Node 22 or later, pnpm. ESM only.
 | `pnpm typecheck` | `tsc` |
 | `pnpm test` | Vitest, tests colocated as `*.unit.test.ts` |
 | `pnpm build` | tsdown into `dist`, then `schemas/combinatrix.schema.json` from `scripts/generate-json-schema.ts` |
+| `pnpm site:build` / `site:dev` / `site:preview` | Build, serve or preview the explorer in `site/`, which imports the library from `src/` |
 
 CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types, and trilean's, depend on neither. trilean's tree types are inferred from zod schemas, and zod's own declarations name the `URL` global, so a consumer that checks library declarations (`skipLibCheck` off) needs the DOM library or a runtime's types for zod's sake; that diagnostic is the one the check allows.
 
