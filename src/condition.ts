@@ -1,8 +1,8 @@
-import type { PartialAssignment, Scalar } from "./value";
+import type { PartialAssignment, Scalar, Value } from "./value";
 import { sameValue } from "./value";
 
 /**
- * A condition over dimension values, as plain JSON-shaped data. `N` narrows the dimension names a condition may mention; it defaults to any string, which is what a condition read from a JSON file has.
+ * A condition over dimension values, as plain JSON-shaped data with any string as a dimension name: the form a condition read from JSON has. `isCondition` checks data against it, and `defineModel` checks its names and values against the dimensions at runtime. A condition written in code is checked at compile time as a `TypedCondition` instead.
  *
  * - `{ is: [dimension, value] }`: the dimension is set to the value.
  * - `{ in: [dimension, values] }`: the dimension is set to one of the values.
@@ -10,14 +10,32 @@ import { sameValue } from "./value";
  * - `{ set: dimension }`: the dimension is set to any value.
  * - `{ all: conditions }`, `{ any: conditions }`, `{ not: condition }`: conjunction, disjunction and negation. An empty `all` holds and an empty `any` does not.
  */
-export type Condition<N extends string = string> =
-  | { readonly is: readonly [N, Scalar] }
-  | { readonly in: readonly [N, readonly Scalar[]] }
-  | { readonly unset: N }
-  | { readonly set: N }
-  | { readonly all: readonly Condition<N>[] }
-  | { readonly any: readonly Condition<N>[] }
-  | { readonly not: Condition<N> };
+export type Condition =
+  | { readonly is: readonly [string, Scalar] }
+  | { readonly in: readonly [string, readonly Scalar[]] }
+  | { readonly unset: string }
+  | { readonly set: string }
+  | { readonly all: readonly Condition[] }
+  | { readonly any: readonly Condition[] }
+  | { readonly not: Condition };
+
+/** The names of the dimensions of a combination type. */
+type NamesIn<T> = keyof T & string;
+
+/** The names of the dimensions of a combination type that can be unset: those whose value type includes `undefined`. */
+export type UnsettableIn<T> = { readonly [K in NamesIn<T>]: undefined extends T[K] ? K : never }[NamesIn<T>];
+
+/**
+ * A condition checked against the dimensions at compile time. `T` is the type of one combination (`CombinationOf<typeof model>`, or `TupleOf<typeof dimensions>`), and each form is correlated with it: `is` and `in` pair a dimension's name with that dimension's own values, `set` takes any dimension and `unset` only a dimension that can be unset. A typed condition is a `Condition`, so it evaluates as one. Over a combination type with plain string keys it accepts what `Condition` accepts.
+ */
+export type TypedCondition<T extends Readonly<Record<string, Value>>> =
+  | { readonly is: { readonly [K in NamesIn<T>]: readonly [K, Extract<T[K], Scalar>] }[NamesIn<T>] }
+  | { readonly in: { readonly [K in NamesIn<T>]: readonly [K, readonly Extract<T[K], Scalar>[]] }[NamesIn<T>] }
+  | { readonly unset: UnsettableIn<T> }
+  | { readonly set: NamesIn<T> }
+  | { readonly all: readonly TypedCondition<T>[] }
+  | { readonly any: readonly TypedCondition<T>[] }
+  | { readonly not: TypedCondition<T> };
 
 /** A three-valued truth: `true`, `false`, or `undefined` when the partial assignment does not yet decide it. */
 export type Truth = boolean | undefined;
@@ -72,17 +90,17 @@ export function implication(antecedent: Truth, consequent: Truth): Truth {
   return negation(conjunction([antecedent, negation(consequent)]));
 }
 
-/** One mention of a dimension in a condition, with the values it is compared against (empty for `set` and `unset`, which compare against no particular value). */
+/** One mention of a dimension in a condition, with the values it is compared against: `undefined` alone for `unset`, and none for `set`, which holds for any value. */
 export interface Mention {
   readonly dimension: string;
-  readonly values: readonly Scalar[];
+  readonly values: readonly Value[];
 }
 
 /** Every dimension a condition mentions, in the order written, with the values each mention compares against. */
 export function conditionMentions(condition: Condition): Mention[] {
   if ("is" in condition) return [{ dimension: condition.is[0], values: [condition.is[1]] }];
   if ("in" in condition) return [{ dimension: condition.in[0], values: condition.in[1] }];
-  if ("unset" in condition) return [{ dimension: condition.unset, values: [] }];
+  if ("unset" in condition) return [{ dimension: condition.unset, values: [undefined] }];
   if ("set" in condition) return [{ dimension: condition.set, values: [] }];
   if ("all" in condition) return condition.all.flatMap(conditionMentions);
   if ("any" in condition) return condition.any.flatMap(conditionMentions);

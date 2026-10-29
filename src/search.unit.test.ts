@@ -75,7 +75,7 @@ function scalars(values: readonly Value[]): Scalar[] {
   return values.filter((value): value is Scalar => value !== undefined);
 }
 
-/** A random condition over the given dimensions, comparing only against values each can take. */
+/** A random condition over the given dimensions, comparing only against values each can take, and testing for unset only a dimension that can be unset. */
 function randomCondition(random: Random, dimensions: readonly { readonly name: string; readonly values: readonly Value[] }[], depth: number): Condition {
   const dimension = random.pick(dimensions);
   const options = scalars(dimension.values);
@@ -84,7 +84,7 @@ function randomCondition(random: Random, dimensions: readonly { readonly name: s
     if (leaf === 0 && options.length > 0) return { is: [dimension.name, random.pick(options)] };
     if (leaf === 1 && options.length > 0) return { in: [dimension.name, random.subset(options, random.int(1, options.length))] };
 
-    return leaf === 2 ? { set: dimension.name } : { unset: dimension.name };
+    return leaf === 2 || !dimension.values.includes(undefined) ? { set: dimension.name } : { unset: dimension.name };
   }
   const operands = Array.from({ length: random.int(1, 2) }, () => randomCondition(random, dimensions, depth + 1));
   const [first] = operands;
@@ -126,8 +126,9 @@ function randomModel(seed: number): ModelParts {
     const name = `d${String(index)}`;
     const values = random.subset(VALUE_POOL, random.int(1, MAX_DOMAIN));
     const earlier = [...free];
-    dimensions.push(earlier.length > 0 && random.chance() ? choice(name, values, { activeWhen: randomCondition(random, earlier, 1) }) : choice(name, values));
-    free.push({ name, values: earlier.length > 0 ? [...values, undefined] : values });
+    const conditional = earlier.length > 0 && random.chance();
+    dimensions.push(conditional ? choice(name, values, { activeWhen: randomCondition(random, earlier, 1) }) : choice(name, values));
+    free.push({ name, values: conditional ? [...values, undefined] : values });
   }
   const readable = [...free];
   if (random.chance()) {

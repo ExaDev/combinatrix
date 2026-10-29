@@ -1,4 +1,4 @@
-export type { Condition } from "./condition";
+export type { Condition, TypedCondition, UnsettableIn } from "./condition";
 export { predicate } from "./constraint";
 export type { Constraint, PredicateDefinition, PredicateValues, Verdict } from "./constraint";
 export { choice, computed, firstValid, sampled } from "./dimension";
@@ -8,10 +8,10 @@ export type { CancellationOptions, Combination, CombinationsOptions, DeadValue, 
 export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelError, StrategyError } from "./errors";
 export { explain, explainData } from "./explain";
 export type { ExactRecord, Explanation, Reason } from "./explain";
-export { isCondition, isRule } from "./guards";
+export { isCondition, isRule, parseRules } from "./guards";
 export { defineModel } from "./model";
 export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model";
-export type { Rule } from "./rule";
+export type { Rule, TypedRule } from "./rule";
 export { full } from "./strategy";
 export type { Strategy, StrategyContext } from "./strategy";
 export type { PartialAssignment, Scalar, Value } from "./value";

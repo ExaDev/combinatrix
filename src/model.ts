@@ -3,7 +3,7 @@ import { conditionDependencies, conditionMentions } from "./condition";
 import type { Constraint } from "./constraint";
 import type { Dimension, TupleOf } from "./dimension";
 import { ModelError } from "./errors";
-import type { Rule } from "./rule";
+import type { Rule, TypedRule } from "./rule";
 import { ruleConditions, ruleConstraint } from "./rule";
 import type { Value } from "./value";
 import { describeValue, isScalar, valueKey } from "./value";
@@ -12,8 +12,8 @@ import { describeValue, isScalar, valueKey } from "./value";
 export interface ModelDefinition<Ds extends readonly Dimension[]> {
   /** The dimensions, in enumeration order: the first varies slowest. */
   readonly dimensions: Ds;
-  /** Declarative constraints, as JSON-shaped data. Typed with plain string names so rules read from JSON are accepted as they are; `defineModel` checks every name and value against the dimensions. Annotate a literal as `Rule<NameOf<typeof dimensions>>` to have the compiler check its names too. */
-  readonly rules?: readonly Rule[];
+  /** Declarative constraints, as JSON-shaped data whose dimension names and compared values are checked against the dimensions at compile time. Rules read from JSON go through `parseRules` first, which checks them at runtime and returns them typed. `defineModel` checks every rule at runtime as well, since data can bypass the types. */
+  readonly rules?: readonly TypedRule<TupleOf<Ds>>[];
   /** Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. */
   readonly constraints?: readonly Constraint[];
 }
@@ -99,7 +99,7 @@ function checkModel(dimensions: readonly Dimension[], rules: readonly Rule[], co
     if (dimension.activeWhen !== undefined) issues.push(...checkMentions(conditionMentions(dimension.activeWhen), byName, `the activity of dimension "${dimension.name}"`));
   }
   rules.forEach((rule, index) => {
-    for (const condition of ruleConditions(rule)) issues.push(...checkMentions(conditionMentions(condition), byName, `rule ${String(index)}`));
+    issues.push(...ruleIssues(rule, byName, `rule ${String(index)}`));
   });
   constraints.forEach((constraint, index) => {
     for (const dependency of constraint.dependencies) {
@@ -152,6 +152,11 @@ function checkActivity(condition: Condition, label: string, earlier: ReadonlyMap
   return conditionDependencies(condition)
     .filter((dependency) => !earlier.has(dependency))
     .map((dependency) => `${label} is active depending on "${dependency}", which is not a dimension declared before it`);
+}
+
+/** Every defect in a rule's references to the dimensions: an unknown dimension, or a comparison with a value the dimension can never take (`unset` included). */
+export function ruleIssues(rule: Rule, byName: ReadonlyMap<string, Dimension>, label: string): string[] {
+  return ruleConditions(rule).flatMap((condition) => checkMentions(conditionMentions(condition), byName, label));
 }
 
 function checkMentions(mentions: readonly Mention[], byName: ReadonlyMap<string, Dimension>, label: string): string[] {
