@@ -401,9 +401,26 @@ describe("the JSON Schema document", () => {
 
   it("is what the build wrote, when the build has run", () => {
     const built = join(import.meta.dirname, "..", "schemas", "combinatrix.schema.json");
-    if (!existsSync(built)) return;
+    if (!existsSync(built)) {
+      // A build always precedes the tests in CI, so a missing file there is a defect; locally the tests do not require a build.
+      expect(process.env["CI"]).toBeUndefined();
+
+      return;
+    }
 
     const written: unknown = JSON.parse(readFileSync(built, "utf8"));
     expect(written).toEqual(schema);
+  });
+});
+
+describe("the README's rules file", () => {
+  const readme = readFileSync(join(import.meta.dirname, "..", "README.md"), "utf8");
+  const section = readme.slice(readme.indexOf("### JSON Schema"));
+  const example: unknown = JSON.parse(/^```json\n(?<json>[\s\S]*?)\n```$/mu.exec(section)?.groups?.["json"] ?? "null");
+
+  it("is valid against the schema, and `parseRules` accepts it for the dimensions it is written for", () => {
+    expect(accepts("Rules")(example)).toBe(true);
+    const dimensions = [choice("os", ["linux", "macos", "windows"]), choice("arch", ["x64", "arm64"]), choice("runtime", ["node", "bun"])] as const;
+    expect(() => defineModel({ dimensions, rules: parseRules(dimensions, example) })).not.toThrow();
   });
 });

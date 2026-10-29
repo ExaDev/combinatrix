@@ -457,7 +457,22 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 ### Models
 
-`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
+`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: data that is not well formed (an unknown or misspelt key, a wrong type, a malformed condition), duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
+
+### JSON Schema
+
+The package ships `schemas/combinatrix.schema.json`, a JSON Schema (draft 2020-12) for the data a configuration file holds: a model with `choice` and `firstValid` dimensions over literal values, `activeWhen` conditions and rules; a list of rules; a single rule; or a single condition. Its `$id` names the package version it ships in, and each definition (`Model`, `Rules`, `Rule`, `Condition`) can be validated against on its own, such as `combinatrix.schema.json#/$defs/Rules`. A rules file for a model with `os`, `arch` and `runtime` dimensions looks like this:
+
+```json
+[
+  { "excludes": { "is": ["os", "windows"] }, "when": { "is": ["runtime", "bun"] }, "name": "bun is not offered on windows" },
+  { "implies": [{ "is": ["arch", "arm64"] }, { "not": { "is": ["os", "windows"] } }], "unless": { "is": ["runtime", "node"] } }
+]
+```
+
+To have an editor check such files, map their names to the schema in its settings, for example VS Code's `json.schemas` with the `fileMatch` pattern `*.rules.json` and the `url` `./node_modules/combinatrix/schemas/combinatrix.schema.json`. To validate in code, import it through the package's `exports` (`combinatrix/schemas/combinatrix.schema.json`) and give it to a draft 2020-12 validator such as Ajv's `ajv/dist/2020`.
+
+The schema covers only what is data. Computed dimensions, `sampled` domains, `predicate` and every other constraint given through the constraint contract are functions and are not described, and unset is not a JSON value, so a dimension is unset only through `activeWhen`. It states the shape, not what depends on the whole model: that names are unique and that every condition names a dimension and a value the model has are checked by `defineModel`, and `parseRules` checks them for a rules file. A test requires the schema and `isCondition`, `isRule`, `parseRules` and `defineModel` to accept and refuse the same data, and `pnpm build` regenerates the file from the Zod definitions in `scripts/`, which are a development dependency only.
 
 ### Enumerating
 
@@ -530,7 +545,7 @@ Node 22 or later, pnpm. ESM only.
 | `pnpm lint` / `pnpm lint:check` | ESLint, fixing / check only |
 | `pnpm typecheck` | `tsc` |
 | `pnpm test` | Vitest, tests colocated as `*.unit.test.ts` |
-| `pnpm build` | tsdown into `dist` |
+| `pnpm build` | tsdown into `dist`, then `schemas/combinatrix.schema.json` from `scripts/generate-json-schema.ts` |
 
 CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types depend on neither.
 

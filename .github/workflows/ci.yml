@@ -85,8 +85,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      # Before the tests, so the one that compares the built schema with what the generator derives in process has a file to compare.
       - run: pnpm build
+      - run: pnpm test
       - run: pnpm exec publint
       - run: pnpm exec attw --pack --profile esm-only
 
@@ -192,6 +193,7 @@ jobs:
           cat > check.mjs <<'EOF'
           import assert from 'node:assert/strict';
           import { choice, collect, count, defineModel, explain, firstValid, LimitExceededError } from 'combinatrix';
+          import schema from 'combinatrix/schemas/combinatrix.schema.json' with { type: 'json' };
 
           const model = defineModel({
             dimensions: [choice('feature', [undefined, 'beta']), firstValid('channel', [undefined, 'stable', 'beta'])],
@@ -206,6 +208,8 @@ jobs:
           assert.equal(count(model, { limit: 2 }), 2);
           assert.throws(() => count(model, { limit: 1 }), LimitExceededError);
           assert.equal(explain(model, { feature: 'beta', channel: 'stable' }).valid, false);
+          assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
+          assert.deepEqual(Object.keys(schema.$defs).sort(), ['ChoiceDimension', 'Condition', 'FirstValidDimension', 'Model', 'Rule', 'Rules', 'Scalar']);
           EOF
           node check.mjs
       # The published declarations must compile for a consumer whose program declares neither the DOM library nor any runtime's types, since the library runs in any runtime: lib is ES2024 alone, types is empty, and skipLibCheck is off so an undeclared name in the package's own declarations fails the check. It uses the TypeScript the workspace installed, so the consumer project needs no install of its own.
