@@ -3,7 +3,7 @@
   "description": "Lazily enumerates every valid combination of option dimensions: the solution set of a finite-domain constraint model, with declarative three-valued constraints written as trilean predicate trees, derived dimensions and conditional activity",
   "version": "2.0.1",
   "dependencies": {
-    "trilean": "1.11.1"
+    "trilean": "1.13.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

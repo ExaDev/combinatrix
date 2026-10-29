@@ -121,13 +121,13 @@ export interface TreeNaming {
 }
 
 /**
- * The constraint a tree states over the dimensions, from a tree whose survey found no defects and whose `references` are its dependencies. Everything that does not depend on the assignment is made once, here, when the model is defined: the tree's trilean evaluator, its resolvers, and the set of values each dependency can take. Each evaluation only points the resolvers at its assignment and evaluates, so a compiled form of the tree, when trilean offers one, replaces the one evaluation call.
+ * The constraint a tree states over the dimensions, from a tree whose survey found no defects and whose `references` are its dependencies. Everything that does not depend on the assignment is made once, here, when the model is defined: the tree compiled by trilean's synchronous evaluator, its resolvers, and the set of values each dependency can take. Each evaluation only points the resolvers at its assignment and runs the compiled tree.
  *
- * `evaluate` answers `invalid` for an assignment giving a referenced choice or first-valid dimension a value it can never take, which no combination has (only a strategy's own test assignment can supply one), and otherwise runs trilean's synchronous evaluator with each reference resolved from the assignment: a dimension assigned a string, number or boolean resolves to that text, number or boolean; one assigned unset resolves as known absent (`{ found: false }`, so `exists` is definitely false); one not yet assigned resolves as not yet known (`{ found: false, notYetKnown: true }`, so `exists` and everything reading it stays indeterminate until it is assigned, which is what keeps a definite answer the answer on every completion). A definite true is `valid` and a definite false `invalid`. An indeterminate result is `unknown` while some dependency is unassigned, and throws `UndecidedConstraintError`, carrying trilean's reason and the `label`, once every dependency is assigned, since the contract forbids `unknown` there. A computed dimension that produces `null` throws `UnmappableValueError` when it is read.
+ * `evaluate` answers `invalid` for an assignment giving a referenced choice or first-valid dimension a value it can never take, which no combination has (only a strategy's own test assignment can supply one), and otherwise runs the compiled tree with each reference resolved from the assignment: a dimension assigned a string, number or boolean resolves to that text, number or boolean; one assigned unset resolves as known absent (`{ found: false }`, so `exists` is definitely false); one not yet assigned resolves as not yet known (`{ found: false, notYetKnown: true }`, so `exists` and everything reading it stays indeterminate until it is assigned, which is what keeps a definite answer the answer on every completion). A definite true is `valid` and a definite false `invalid`. An indeterminate result is `unknown` while some dependency is unassigned, and throws `UndecidedConstraintError`, carrying trilean's reason and the `label`, once every dependency is assigned, since the contract forbids `unknown` there. A computed dimension that produces `null` throws `UnmappableValueError` when it is read.
  */
 export function treeConstraint(tree: Condition, dependencies: readonly string[], byName: ReadonlyMap<string, Dimension>, naming: TreeNaming): Constraint {
   const { label, name } = naming;
-  const evaluator = createSyncEvaluator({ functions: emptyFunctionRegistry });
+  const evaluateTree = createSyncEvaluator({ functions: emptyFunctionRegistry }).compilePredicate(tree);
   const reader = assignmentResolvers();
   const possible = dependencies.map((dependency) => {
     const dimension = byName.get(dependency);
@@ -143,7 +143,7 @@ export function treeConstraint(tree: Condition, dependencies: readonly string[],
     if (impossible) return "invalid";
 
     reader.assignment = assignment;
-    const result = evaluator.evaluatePredicate(tree, undefined, reader.resolvers);
+    const result = evaluateTree(undefined, reader.resolvers);
     if (result.status === "definite") return result.value ? "valid" : "invalid";
     if (dependencies.every((dependency) => assignment.has(dependency))) {
       throw new UndecidedConstraintError(label, result.reason);
