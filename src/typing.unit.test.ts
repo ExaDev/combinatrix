@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { CombinationOf, TupleOf, TypedCondition, TypedRule } from "./index";
-import { choice, collect, computed, defineModel, firstValid, isNonEmpty, ModelError, sampled } from "./index";
+import type { CombinationOf, Condition, Constraint, TupleOf, TypedCondition, TypedRule } from "./index";
+import { choice, collect, computed, defineModel, firstValid, isNonEmpty, ModelError, predicate, sampled } from "./index";
 
 /**
  * Compile-time guarantees. Each `@ts-expect-error` line is load-bearing: `pnpm typecheck` type-checks this file, and a directive whose line compiles is itself an error (TS2578), so a guarantee that stopped holding fails the typecheck. Each refused definition is also run, to show `defineModel` still refuses it at runtime, where data that bypassed the types arrives.
@@ -95,5 +95,54 @@ describe("domains", () => {
     expect(defineModel({ dimensions: [choice("a", values)] }).dimensions).toEqual([{ kind: "choice", name: "a", values: ["x", "y"] }]);
     expect(isNonEmpty([])).toBe(false);
     expect(() => defineModel({ dimensions: [sampled("a", () => [])] })).toThrow(ModelError);
+  });
+});
+
+describe("the dimensions' names and order", () => {
+  it("refuse a name declared twice", () => {
+    // @ts-expect-error os is declared twice
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("os", ["macos"])] })).toThrow(ModelError);
+  });
+
+  it("refuse an activity condition on a later or unknown dimension, or comparing with a value it can never take", () => {
+    // @ts-expect-error os is declared after libc
+    expect(() => defineModel({ dimensions: [choice("libc", ["glibc"], { activeWhen: { is: ["os", "linux"] } }), choice("os", ["linux"])] })).toThrow(ModelError);
+    // @ts-expect-error kernel is not a dimension
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: { not: { set: "kernel" } } })] })).toThrow(ModelError);
+    // @ts-expect-error "bsd" is not a value of os
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), firstValid("libc", ["glibc"], { activeWhen: { any: [{ is: ["os", "bsd"] }] } })] })).toThrow(ModelError);
+    // @ts-expect-error os is never unset
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: { unset: "os" } })] })).toThrow(ModelError);
+  });
+
+  it("refuse a computed dimension reading a later or unknown dimension", () => {
+    // @ts-expect-error arch is declared after triple
+    expect(() => defineModel({ dimensions: [computed("triple", { reads: ["arch"], compute: () => "x" }), choice("arch", ["x64"])] })).toThrow(ModelError);
+    // @ts-expect-error kernel is not a dimension
+    expect(() => defineModel({ dimensions: [choice("arch", ["x64"]), computed("triple", { reads: ["arch", "kernel"], compute: () => "x" })] })).toThrow(ModelError);
+  });
+
+  it("refuse a rule or predicate on a first-valid dimension that mentions a dimension declared after it", () => {
+    const ordered = [choice("os", ["linux", "macos"]), firstValid("channel", ["stable", "beta"]), choice("arch", ["x64", "arm64"])] as const;
+    expect(defineModel({ dimensions: ordered, rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["os", "macos"] } }] }).rules).toHaveLength(1);
+    // @ts-expect-error arch is declared after the first-valid channel
+    expect(() => defineModel({ dimensions: ordered, rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["arch", "arm64"] } }] })).toThrow(ModelError);
+    // @ts-expect-error the same for a predicate's reads
+    expect(() => defineModel({ dimensions: ordered, constraints: [predicate({ reads: ["channel", "arch"], test: () => true })] })).toThrow(ModelError);
+  });
+
+  it("refuse a predicate reading an unknown dimension, and leave a constraint with string dependencies to the runtime", () => {
+    // @ts-expect-error kernel is not a dimension
+    expect(() => defineModel({ dimensions, constraints: [predicate({ reads: ["os", "kernel"], test: () => true })] })).toThrow(ModelError);
+    const untyped: Constraint = { dependencies: ["kernel"], evaluate: () => "valid" };
+    expect(() => defineModel({ dimensions, constraints: [untyped] })).toThrow(ModelError);
+  });
+
+  it("leave a dimension whose name or condition is not known at compile time to the runtime", () => {
+    // A name assembled at runtime is typed string, so the compiler cannot see the duplicate.
+    const name = ["o", "s"].join("");
+    const activity: Condition = { is: ["os", "bsd"] };
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice(name, ["macos"])] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: activity })] })).toThrow(ModelError);
   });
 });
