@@ -272,9 +272,89 @@ jobs:
             exit 1
           fi
 
+  # The explorer in site/ driven in a real browser: the form, the JSON view, the examples, share links, saved models, cancelling a long count, phone width and the colour schemes, which the unit tests cannot see. It runs only when what the site is built from changed, and decides that itself rather than through a path filter on the workflow or a separate job: a filtered workflow leaves a required check missing, where this job always reports, passing at once when nothing relevant changed, so Required Checks can depend on it.
+  browser:
+    name: Browser
+    needs: determine-runner
+    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The files the site, its tests and the library it is built from live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them. The diff is of two trees, so one commit of history each is enough.
+      - name: Decide whether the browser tests are needed
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "The browser tests run: there is no base to compare with."
+            exit 0
+          fi
+          if ! git fetch --no-tags --depth=1 "https://github.com/${REPOSITORY}.git" "$BASE_SHA"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "The browser tests run: the base commit could not be fetched."
+            exit 0
+          fi
+          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(site/|src/|e2e/|playwright\.config\.ts$|package\.json$|pnpm-lock\.yaml$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "The browser tests run: the site, the library, the tests or the dependencies changed."
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "The browser tests are skipped: nothing they depend on changed."
+          fi
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.changes.outputs.relevant == 'true'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.changes.outputs.relevant == 'true'
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.changes.outputs.relevant == 'true'
+      - name: Resolve Playwright version
+        id: playwright
+        if: steps.changes.outputs.relevant == 'true'
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Browser binaries are versioned by Playwright, so its version, with the platform and architecture the binary is for, is the whole key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: browsers
+        if: steps.changes.outputs.relevant == 'true'
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      # Only the headless shell, which is what a headless run uses: the full Chromium that a plain `install chromium` adds is another download the tests never open.
+      - name: Install Chromium's headless shell
+        if: steps.changes.outputs.relevant == 'true' && steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --only-shell chromium
+      # The cache holds the browser download only; the operating system libraries it needs are installed by apt and are not in it. They need root, which a runner pod need not have: without it the image's own libraries are used, and Chromium names any that is missing when it starts.
+      - name: Install the operating system libraries Chromium needs
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+            pnpm exec playwright install-deps chromium
+          else
+            echo "Neither root nor passwordless sudo: the runner image's libraries are used."
+          fi
+      - name: Run the browser tests
+        if: steps.changes.outputs.relevant == 'true'
+        run: pnpm test:e2e
+      # Traces of the tests that failed, which are kept only for a failure.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure() && steps.changes.outputs.relevant == 'true'
+        with:
+          name: browser-test-results
+          path: test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   required-checks:
     name: Required Checks
-    needs: [determine-runner, commitlint, lint, typecheck, package, actionlint, zizmor]
+    needs: [determine-runner, commitlint, lint, typecheck, package, actionlint, zizmor, browser]
     # Always runs, even if a dependency failed, so it reports that failure itself rather than being skipped: a required check that is silently absent blocks a PR indefinitely instead of failing it visibly.
     if: always()
     runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
