@@ -2,6 +2,7 @@ import type { ExpressionNode, PredicateNode } from "trilean";
 import { DEFAULT_MAX_EVALUATION_NODES, DEFAULT_MAX_NESTING_DEPTH } from "trilean/evaluator-budget";
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../test/budget";
 import type { Condition, Dimension, Value } from "./index";
 import { choice, collect, computed, ConstraintContractError, defineModel, firstValid, is, isCondition, isSet, ModelError, UndecidedConstraintError, UnmappableValueError } from "./index";
 
@@ -106,7 +107,12 @@ describe("defineModel's refusal of a tree no assignment of dimensions can decide
     expect(issuesOf(isSet("m"), [choice<"m", "a" | 1>("m", ["a", 1])])).toEqual([]);
   });
 
-  it("refuses a tree past trilean's evaluation budget, by node count and by depth", () => {
+  // The nodes the two trees below hold: the wide one is a conjunction of `exists` over a reference, and the deep one the same under negations.
+  const treeNodes = DEFAULT_MAX_EVALUATION_NODES * 2 + 1 + DEFAULT_MAX_NESTING_DEPTH + 1;
+  /** The time one node of a tree may take to check, in milliseconds: at least two hundred times what it takes on an idle machine, so a machine under heavy load still passes and only a check that stops terminating fails. */
+  const NODE_BUDGET_MS = 2;
+
+  it("refuses a tree past trilean's evaluation budget, by node count and by depth", budgetFor(treeNodes, NODE_BUDGET_MS), () => {
     const wide: Condition = { kind: "allOf", operands: Array.from({ length: DEFAULT_MAX_EVALUATION_NODES }, () => exists("mode")) };
     expect(issuesOf(wide)).toEqual([`rule 0 has ${String(DEFAULT_MAX_EVALUATION_NODES * 2 + 1)} nodes, more than the ${String(DEFAULT_MAX_EVALUATION_NODES)} one trilean evaluation may visit`]);
     let deep: Condition = exists("mode");
