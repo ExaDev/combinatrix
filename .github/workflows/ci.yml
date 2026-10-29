@@ -282,7 +282,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The files the site, its tests and the library it is built from live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them. The diff is of two trees, so one commit of history each is enough.
+      # The files the site, its tests, the library it is built from and this workflow live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them. The diff is of two trees, so one commit of history each is enough.
       - name: Decide whether the browser tests are needed
         id: changes
         env:
@@ -300,7 +300,7 @@ jobs:
             echo "The browser tests run: the base commit could not be fetched."
             exit 0
           fi
-          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(site/|src/|e2e/|playwright\.config\.ts$|package\.json$|pnpm-lock\.yaml$)'; then
+          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(site/|src/|e2e/|playwright\.config\.ts$|package\.json$|pnpm-lock\.yaml$|\.github/workflows/ci\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "The browser tests run: the site, the library, the tests or the dependencies changed."
           else
