@@ -24,6 +24,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   "09-paging.ts": async () => import("../examples/09-paging"),
   "10-typed.ts": async () => import("../examples/10-typed"),
   "11-json-model.ts": async () => import("../examples/11-json-model"),
+  "12-covering-array.ts": async () => import("../examples/12-covering-array"),
 };
 
 const FILES = Object.keys(LOADERS);
@@ -249,5 +250,38 @@ describe("the JSON model example", () => {
       }),
     );
     expect(await printedOf("11-json-model.ts")).toEqual([...expected, 'rule 0 mentions unknown dimension "arch"', 'constraint 0 depends on unknown dimension "arch"']);
+  });
+});
+
+describe("the covering array example", () => {
+  const RUNTIMES = ["node", "bun", "deno"] as const;
+  interface Combination { readonly os: (typeof OS)[number]; readonly arch: (typeof ARCH)[number]; readonly runtime: (typeof RUNTIMES)[number] }
+  const solutions: Combination[] = OS.flatMap((os) => ARCH.flatMap((arch) => RUNTIMES.filter((runtime) => !(runtime === "bun" && os === "windows")).map((runtime) => ({ os, arch, runtime }))));
+  const byText = new Map(solutions.map((solution) => [format(solution), solution]));
+  const PAIRS = [["os", "arch"], ["os", "runtime"], ["arch", "runtime"]] as const;
+  const pairsOf = (combination: Combination): string[] => PAIRS.map(([left, right]) => `${left}=${combination[left]} ${right}=${combination[right]}`);
+
+  /** The solution a printed row shows, refusing a row that is not one. */
+  function solutionShown(row: string): Combination {
+    const solution = byText.get(row);
+    if (solution === undefined) throw new Error(`${row} is not a solution`);
+
+    return solution;
+  }
+
+  it("prints the size of the solution set and of the array, then rows that are solutions, each once, and true", async () => {
+    const lines = await printedOf("12-covering-array.ts");
+    const rows = lines.slice(1, -1);
+    expect(lines.at(-1)).toBe("true");
+    expect(lines[0]).toBe(`${String(solutions.length)} ${String(rows.length)}`);
+    expect(new Set(rows).size).toBe(rows.length);
+    expect(rows.map(solutionShown)).toHaveLength(rows.length);
+  });
+
+  it("covers every pair of values some solution contains, in fewer rows than the solution set", async () => {
+    const rows = (await printedOf("12-covering-array.ts")).slice(1, -1);
+    const covered = new Set(rows.map(solutionShown).flatMap(pairsOf));
+    expect(solutions.flatMap(pairsOf).every((pair) => covered.has(pair))).toBe(true);
+    expect(rows.length).toBeLessThan(solutions.length);
   });
 });

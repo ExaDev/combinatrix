@@ -459,6 +459,46 @@ constraint 0 depends on unknown dimension "arch"
 */
 ```
 
+A strategy chooses which combinations of the solution set to produce, and `coveringArray` chooses few: valid combinations such that every combination of values of any `strength` dimensions that some valid combination contains appears in at least one of them. At strength 2 that is every pair of values, so a test matrix needs far fewer rows than the whole solution set while still exercising each pair. Pairs no valid combination contains are not required, and `isCoveringArray` checks the result against the solution set by brute force.
+
+```ts
+// examples/12-covering-array.ts
+import { choice, collect, count, coveringArray, defineModel, isCoveringArray } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+    choice("runtime", ["node", "bun", "deno"]),
+  ],
+  rules: [{ name: "bun is not offered on windows", excludes: { is: ["runtime", "bun"] }, when: { is: ["os", "windows"] } }],
+});
+
+const rows = collect(model, { strategy: coveringArray({ strength: 2 }) }).map(({ values }) => values);
+
+console.log(count(model), rows.length);
+/*
+16 8
+*/
+
+for (const row of rows) console.log(row);
+/*
+{ os: 'linux', arch: 'x64', runtime: 'node' }
+{ os: 'linux', arch: 'arm64', runtime: 'bun' }
+{ os: 'macos', arch: 'x64', runtime: 'bun' }
+{ os: 'macos', arch: 'arm64', runtime: 'node' }
+{ os: 'windows', arch: 'x64', runtime: 'deno' }
+{ os: 'windows', arch: 'arm64', runtime: 'node' }
+{ os: 'linux', arch: 'arm64', runtime: 'deno' }
+{ os: 'macos', arch: 'x64', runtime: 'deno' }
+*/
+
+console.log(isCoveringArray(rows, model, { strength: 2, limit: 16 }));
+/*
+true
+*/
+```
+
 ## API
 
 ### Typed and untyped routes
@@ -575,9 +615,17 @@ interface Strategy<T extends ValueRecord = ValueRecord> {
 }
 ```
 
-The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A strategy that caps what it holds or does throws `new LimitExceededError(limit, bound)` naming what it capped, `rows` or `steps`, so the message is about that and not the solution set. A covering-array or sampling strategy from another package implements the same interface; every record it yields is checked with `explainData`, and one outside the solution set throws `StrategyError`.
+The context carries the model's `dimensions` and `constraints`, `test(assignment)` for the combined three-valued verdict of every constraint on a partial assignment, and `completions(assignment?)` for the solution set's combinations that agree with a partial assignment, lazily and in order. `full` yields every completion. The context also carries the caller's `signal`, when there is one: `completions` honours it already, and a strategy that searches in any other way calls `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. A strategy that caps what it holds or does throws `new LimitExceededError(limit, bound)` naming what it capped, `rows` or `steps`, so the message is about that and not the solution set. `coveringArray` is a strategy of this kind, and a sampling strategy from another package implements the same interface; every record it yields is checked with `explainData`, and one outside the solution set throws `StrategyError`.
 
 `T` is the type of one combination of the model. `Strategy`, unparameterised, is written for any model: its assignments are `ReadonlyMap<string, Value>` and its rows `ValueRecord`. `Strategy<CombinationOf<typeof model>>` is written for one model: its assignments and rows are typed by that model's dimensions, and passing it with a model of another type is a compile error.
+
+### Covering arrays
+
+`coveringArray({ strength, limit? })` is a strategy yielding a covering array of the solution set: valid combinations such that every `strength`-way combination of dimension values that occurs in some valid combination occurs in some yielded row. A strength of 1 covers each value, 2 covers each pair and 3 each triple; a strength above the dimension count covers every dimension at once, which is the whole solution set. Every dimension is covered, derived ones and unset included, and coverage is defined against the solution set only, so a combination of values no valid combination contains is not required.
+
+The construction is in-parameter-order (IPOG, Lei et al., 2007), with constraint handling done by the engine as in Yu et al. (2013): it never reads the solution set, but asks `completions` for the first combination agreeing with a partial assignment, so the constraints prune as they do for enumeration. Its memory is the rows under construction and one count per distinct `strength`-way combination of them, which is polynomial in the dimension count for a fixed strength and independent of the size of the solution set. The array is built in full before the first row is yielded, and the same model always gives the same rows in the same order. `limit` bounds the rows held, and the strategy throws `LimitExceededError` with the bound `rows` past it; a `strength` that is not a positive integer or a `limit` that is not a non-negative integer throws `RangeError` when the strategy is made.
+
+`isCoveringArray(rows, model, { strength, limit })` is the brute-force definition, written apart from the construction so that it can check it: whether every row is a complete combination in the solution set and every `strength`-way combination of values the solution set contains occurs in some row. It enumerates the whole solution set, throwing `LimitExceededError` past `limit` combinations, so it is for tests and small models, not for the models the strategy exists to cover.
 
 ## Development
 
