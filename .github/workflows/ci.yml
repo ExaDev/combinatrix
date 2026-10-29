@@ -208,6 +208,54 @@ jobs:
           assert.equal(explain(model, { feature: 'beta', channel: 'stable' }).valid, false);
           EOF
           node check.mjs
+      # The published declarations must compile for a consumer whose program declares neither the DOM library nor any runtime's types, since the library runs in any runtime: lib is ES2024 alone, types is empty, and skipLibCheck is off so an undeclared name in the package's own declarations fails the check. It uses the TypeScript the workspace installed, so the consumer project needs no install of its own.
+      - name: Compile a TypeScript consumer with no DOM library and no type packages
+        working-directory: ${{ runner.temp }}/scratch
+        run: |
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "lib": ["ES2024"],
+              "types": [],
+              "module": "ESNext",
+              "moduleResolution": "bundler",
+              "target": "ES2024",
+              "strict": true,
+              "exactOptionalPropertyTypes": true,
+              "skipLibCheck": false,
+              "noEmit": true
+            },
+            "files": ["check.ts"]
+          }
+          JSON
+          cat > check.ts <<'TS'
+          import type { AbortSignalLike, CombinationOf, Strategy } from 'combinatrix';
+          import { choice, collect, count, defineModel, diagnose, explain, LimitExceededError } from 'combinatrix';
+
+          const model = defineModel({
+            dimensions: [choice('os', ['linux', 'macos']), choice('arch', ['x64', 'arm64'])],
+            rules: [{ excludes: { all: [{ is: ['os', 'macos'] }, { is: ['arch', 'x64'] }] } }],
+          });
+          const signal: AbortSignalLike = { aborted: false, reason: undefined, throwIfAborted: () => undefined };
+          const firstPerOs: Strategy<CombinationOf<typeof model>> = {
+            name: 'first per os',
+            select: function* (context) {
+              for (const os of ['linux', 'macos'] as const) {
+                const [first] = context.completions(new Map([['os', os]]));
+                if (first !== undefined) yield first;
+              }
+            },
+          };
+          const rows: number = collect(model, { strategy: firstPerOs, signal }).length;
+          const total: number = count(model, { signal });
+          const explanation = explain(model, { os: 'macos', arch: 'x64' });
+          const named: string[] = explanation.valid ? [] : explanation.reasons.map((reason) => reason.kind);
+          const diagnosis = diagnose(model);
+          const dead: string[] = diagnosis.status === 'empty' ? [] : diagnosis.deadValues.map(({ dimension }) => dimension);
+          const bound: string = new LimitExceededError(1, 'rows').bound;
+          export { bound, dead, named, rows, total };
+          TS
+          "$GITHUB_WORKSPACE/node_modules/.bin/tsc" -p tsconfig.json
 
   required-checks:
     name: Required Checks
