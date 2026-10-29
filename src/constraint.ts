@@ -1,4 +1,6 @@
+import type { ConstraintDefect, Refusal } from "./checks";
 import type { Truth } from "./condition";
+import type { Dimension, NameOf, TupleOf } from "./dimension";
 import type { PartialAssignment, Value } from "./value";
 
 /** A constraint's answer on a partial assignment: every completion satisfies it (`valid`), none does (`invalid`), or the assignment does not decide it yet (`unknown`). */
@@ -37,6 +39,24 @@ export interface PredicateDefinition<R extends string> {
   readonly test: (values: Readonly<PredicateValues<R>>) => boolean;
   /** A label for diagnostics. */
   readonly name?: string;
+}
+
+/** The definition of a predicate bound to a model whose combinations have type `T`: `reads` names only the model's dimensions, and `test` receives each one's own value type. */
+export interface TypedPredicateDefinition<T, R extends keyof T & string> {
+  /** Every dimension `test` reads, each a dimension of the model. */
+  readonly reads: readonly R[];
+  /** Whether a combination satisfies the constraint, from the values of the dimensions it declared, each typed as that dimension's values. */
+  readonly test: (values: Readonly<Pick<T, R>>) => boolean;
+  /** A label for diagnostics. */
+  readonly name?: string;
+}
+
+/** What a `constraints` callback given to `defineModel` receives: builders bound to the model's dimensions `Ds`. */
+export interface ConstraintTools<Ds extends readonly Dimension[]> {
+  /**
+   * `predicate` with `reads` checked against the dimensions and `test` typed with each read dimension's values. A value outside its dimension's domain can never be in a combination, so a read of one (which only a strategy's own test assignment can supply) answers `invalid` without calling `test`. A computed dimension's values are not known ahead, so its value is passed as computed.
+   */
+  readonly predicate: <const R extends NameOf<Ds>>(definition: TypedPredicateDefinition<TupleOf<Ds>, R> & Refusal<ConstraintDefect<Ds, R>>) => Predicate<R>;
 }
 
 /**
