@@ -12,14 +12,14 @@ const SPACE = SIDE ** DIMENSION_COUNT;
 const ABORT_AT = 5;
 
 /**
- * A cube whose last dimension is read by a predicate that counts its evaluations and aborts the signal on the given one. The predicate runs at most once per search step, so the evaluations after the abort are bounded by the steps after it.
+ * A cube read whole by a predicate that counts its evaluations and aborts the signal on the given one. The predicate runs at most once per search step, so the evaluations after the abort are bounded by the steps after it. It reads every dimension so that the frontier at each depth is every dimension before it: no two assignments share a frontier state, the memoised count visits every node as the plain search does, and the search is still running when the signal aborts.
  */
 function abortingModel(abortAt: number) {
   const controller = new AbortController();
   const evaluations = { total: 0, afterAbort: 0 };
-  const last = `d${String(DIMENSION_COUNT - 1)}`;
+  const names = Array.from({ length: DIMENSION_COUNT }, (_, index) => `d${String(index)}`);
   const counting = predicate({
-    reads: [last],
+    reads: names,
     test: () => {
       evaluations.total += 1;
       if (controller.signal.aborted) evaluations.afterAbort += 1;
@@ -30,7 +30,7 @@ function abortingModel(abortAt: number) {
   });
   const domain = Array.from({ length: SIDE }, (_, value) => value);
   if (!isNonEmpty(domain)) throw new Error("a side has at least one value");
-  const model = defineModel({ dimensions: Array.from({ length: DIMENSION_COUNT }, (_, index) => choice(`d${String(index)}`, domain)), constraints: [counting] });
+  const model = defineModel({ dimensions: names.map((name) => choice(name, domain)), constraints: [counting] });
 
   return { model, signal: controller.signal, evaluations };
 }

@@ -108,7 +108,7 @@ function randomRule(random: Random, dimensions: readonly { readonly name: string
 }
 
 /** A deterministic pseudo-random boolean of the values a predicate reads, so the predicate is a pure function of them. */
-function hashTest(salt: number) {
+export function hashTest(salt: number) {
   return (values: Readonly<Record<string, Value>>): boolean => {
     const text = JSON.stringify(Object.entries(values).map(([key, value]) => [key, value === undefined ? "unset" : value])) + String(salt);
     let hash = 0;
