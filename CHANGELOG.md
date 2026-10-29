@@ -1,3 +1,13 @@
+## [2.0.1](https://github.com/ExaDev/combinatrix/compare/v2.0.0...v2.0.1) (2026-10-29)
+
+### Bug Fixes
+
+* build before testing in prepublishOnly ([268c962](https://github.com/ExaDev/combinatrix/commit/268c962b1fb36fe2e0791502e0456b5a84675fea))
+
+### Tests
+
+* derive the rank test's timeout from its operation count ([a4d3da1](https://github.com/ExaDev/combinatrix/commit/a4d3da1fcf044471ee830171dbf8792f6fe9508d))
+
 ## [2.0.0](https://github.com/ExaDev/combinatrix/compare/v1.0.1...v2.0.0) (2026-10-29)
 
 ### ⚠ BREAKING CHANGES
