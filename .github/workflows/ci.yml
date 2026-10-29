@@ -87,6 +87,8 @@ jobs:
       - run: pnpm typecheck
       # Before the tests, so the one that compares the built schema with what the generator derives in process has a file to compare.
       - run: pnpm build
+      # The explorer in site/ is built from the library's source, so a change to the library that breaks it fails here, before the Pages workflow would deploy it.
+      - run: pnpm site:build
       - run: pnpm test
       - run: pnpm exec publint
       - run: pnpm exec attw --pack --profile esm-only
