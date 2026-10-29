@@ -9,7 +9,7 @@ import type { Rule } from "../src/rule";
 import type { Scalar } from "../src/value";
 import { valueKey } from "../src/value";
 import type { Mentionable, Mutation } from "./json-schema.fixtures";
-import { accepts, BEYOND_A_SCHEMA, condition, expectAgreement, MAX_OPERANDS, model, MUTATIONS, nearMiss, RUNS, refusalsOf, rule, ruleOver, rules, schema, SEED } from "./json-schema.fixtures";
+import { accepts, BEYOND_A_SCHEMA, condition, expectAgreement, MAX_OPERANDS, model, MUTATIONS, nearMiss, ONE_PROPERTY, refusalsOf, rule, ruleOver, rules, RUNS, schema, SEED, TWO_PROPERTIES } from "./json-schema.fixtures";
 import { PACKAGE_VERSION } from "./json-schema";
 
 /**
@@ -71,19 +71,19 @@ function ruleFitsDomains(candidate: Rule): boolean {
 }
 
 describe("the JSON Schema and the runtime guards", () => {
-  it("agree on every condition and near miss", () => {
+  it("agree on every condition and near miss", TWO_PROPERTIES, () => {
     expectAgreement(condition, isCondition, accepts("PredicateNode"));
   });
 
-  it("agree on every rule and near miss", () => {
+  it("agree on every rule and near miss", TWO_PROPERTIES, () => {
     expectAgreement(rule, isRule, accepts("Rule"));
   });
 
-  it("agree on a list of rules: the guard accepts an array of rules exactly when the schema does", () => {
+  it("agree on a list of rules: the guard accepts an array of rules exactly when the schema does", TWO_PROPERTIES, () => {
     expectAgreement(rules, (value) => Array.isArray(value) && value.every(isRule), accepts("Rules"));
   });
 
-  it("agree on a list of rules with `parseRules`, which refuses what the schema refuses and, of what the schema accepts, exactly what names a dimension or value the model lacks", () => {
+  it("agree on a list of rules with `parseRules`, which refuses what the schema refuses and, of what the schema accepts, exactly what names a dimension or value the model lacks", TWO_PROPERTIES, () => {
     const dimensions = [choice("a", ["x", "y"]), choice("b", [true, null]), firstValid("c", ["y"], { activeWhen: isSet("a") })] as const;
     const known: Mentionable[] = [
       { name: "a", domain: ["x", "y"], unsettable: false },
@@ -103,7 +103,7 @@ describe("the JSON Schema and the runtime guards", () => {
     expectAgreement(fc.array(ruleOver(known), { maxLength: MAX_OPERANDS }), parses, accepts("Rules"), fits);
   });
 
-  it("accept every model `defineModel` accepts and refuse only models it refuses, and `defineModel` refuses what the schema accepts only for what a schema cannot state", () => {
+  it("accept every model `defineModel` accepts and refuse only models it refuses, and `defineModel` refuses what the schema accepts only for what a schema cannot state", TWO_PROPERTIES, () => {
     const valid = accepts("Model");
     fc.assert(
       fc.property(model, (data) => {
@@ -134,7 +134,7 @@ describe("the JSON Schema and the runtime guards", () => {
     expect([...refused].sort()).toEqual([...MUTATIONS].sort());
   });
 
-  it("accept at the root exactly what one of the four definitions accepts", () => {
+  it("accept at the root exactly what one of the four definitions accepts", ONE_PROPERTY, () => {
     const root = accepts(undefined);
     const definitions = [accepts("Model"), accepts("Rules"), accepts("Rule"), accepts("PredicateNode")];
     const anything = fc.oneof(condition, rule, rules, model, nearMiss(fc.oneof(condition, rule, rules, model)).map(({ value }) => value), fc.jsonValue());
