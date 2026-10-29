@@ -44,7 +44,7 @@ export interface Model<T extends Readonly<Record<string, Value>>> extends ModelP
 export type CombinationOf<M> = M extends Model<infer T> ? T : never;
 
 /**
- * Checks a model definition and returns the model. Throws `ModelError` listing every defect: a duplicated or empty name, an empty domain, a value that is not a JSON scalar or appears twice, a reference to an unknown or later dimension, a rule comparing a dimension against a value it cannot take, or a constraint on a first-valid dimension that mentions a dimension declared after it.
+ * Checks a model definition and returns the model. Throws `ModelError` listing every defect: a duplicated or empty name, an empty domain, a value that is not a JSON scalar or appears twice, a reference to an unknown or later dimension, a rule comparing a dimension against a value it cannot take (unset included), or a constraint on a first-valid dimension that mentions a dimension declared after it.
  */
 export function defineModel<const Ds extends readonly Dimension[], const Rs extends readonly TypedRule<TupleOf<Ds>>[] = readonly TypedRule<TupleOf<Ds>>[], const Cs extends readonly Constraint[] = readonly Constraint[]>(definition: ModelDefinition<Ds, Rs, Cs>): Model<TupleOf<Ds>> {
   const { dimensions } = definition;
