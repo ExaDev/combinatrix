@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { Constraint, Strategy } from "./index";
-import { choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, firstValid, full, LimitExceededError, predicate, StrategyError } from "./index";
+import type { CombinationOf, Constraint, Strategy } from "./index";
+import { choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, explainData, firstValid, full, LimitExceededError, predicate, StrategyError } from "./index";
 
 const SIDE = 3;
 const DIMENSION_COUNT = 4;
@@ -153,16 +153,62 @@ describe("explain", () => {
     constraints: [predicate({ name: "not x", reads: ["b"], test: ({ b }) => b !== "x" })],
   });
 
-  it("accepts a combination with or without its derived values and gives the id enumeration gives", () => {
+  it("accepts a combination and gives the id enumeration gives", () => {
     const [first] = collect(model, { limit: 3 });
     expect(first?.values).toEqual({ a: 1, b: undefined, c: "low" });
     expect(explain(model, { a: 1, b: undefined, c: "low" })).toEqual({ valid: true, id: first?.id });
-    expect(explain(model, { a: 1, b: undefined })).toEqual({ valid: true, id: first?.id });
   });
 
-  it("names every reason a record is excluded", () => {
-    const explanation = explain(model, { a: 2, b: "x", c: "low", z: 1 });
-    expect(explanation).toEqual({
+  it("names every reason a combination is excluded", () => {
+    expect(explain(model, { a: 2, b: "x", c: "low" })).toEqual({
+      valid: false,
+      reasons: [
+        { kind: "derived", dimension: "c", value: "low", expected: "high" },
+        { kind: "constraint", index: 0, constraint: model.constraints[0], rule: model.rules[0] },
+        { kind: "constraint", index: 1, constraint: model.constraints[1] },
+      ],
+    });
+  });
+
+  it("reports a set inactive dimension", () => {
+    expect(explain(model, { a: 1, b: "x", c: "low" })).toEqual({ valid: false, reasons: [{ kind: "inactive", dimension: "b", value: "x" }] });
+  });
+
+  it("reports a first-valid dimension with no acceptable candidate, and the constraint the given candidate breaks", () => {
+    const stuck = defineModel({ dimensions: [choice("a", [1]), firstValid("c", ["low"])], rules: [{ excludes: { is: ["c", "low"] } }] });
+    expect(explain(stuck, { a: 1, c: "low" })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }, { kind: "constraint", index: 0, constraint: stuck.constraints[0], rule: stuck.rules[0] }] });
+    expect(explainData(stuck, { a: 1 })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }] });
+  });
+
+  it("refuses at compile time a value outside a domain, a missing dimension and an extra one, even from a variable", () => {
+    // @ts-expect-error "one" is not a value of a
+    explain(model, { a: "one", b: undefined, c: "low" });
+    // @ts-expect-error c is missing
+    explain(model, { a: 1, b: undefined });
+    // @ts-expect-error z is not a dimension
+    explain(model, { a: 1, b: undefined, c: "low", z: 1 });
+    const extra = { a: 1, b: undefined, c: "low", z: 1 } as const;
+    // @ts-expect-error z is not a dimension, and the record is not a literal, so only the exactness check catches it
+    explain(model, extra);
+    expectTypeOf<CombinationOf<typeof model>>().toEqualTypeOf<{ readonly a: 1 | 2; readonly b: "x" | undefined; readonly c: "low" | "high" }>();
+  });
+});
+
+describe("explainData", () => {
+  const model = defineModel({
+    dimensions: [choice("a", [1, 2]), choice("b", [undefined, "x"], { activeWhen: { is: ["a", 2] } }), firstValid("c", ["low", "high"])],
+    rules: [{ name: "two needs high", requires: { is: ["c", "high"] }, when: { is: ["a", 2] } }],
+    constraints: [predicate({ name: "not x", reads: ["b"], test: ({ b }) => b !== "x" })],
+  });
+
+  it("accepts parsed data with or without its derived values, with the id enumeration gives", () => {
+    const [first] = collect(model, { limit: 3 });
+    expect(explainData(model, JSON.parse('{"a":1,"c":"low"}'))).toEqual({ valid: true, id: first?.id });
+    expect(explainData(model, { a: 1, b: undefined })).toEqual({ valid: true, id: first?.id });
+  });
+
+  it("names every reason data is excluded, an unknown key included", () => {
+    expect(explainData(model, { a: 2, b: "x", c: "low", z: 1 })).toEqual({
       valid: false,
       reasons: [
         { kind: "unknown-dimension", dimension: "z" },
@@ -173,14 +219,19 @@ describe("explain", () => {
     });
   });
 
-  it("reports a missing free dimension, a value outside its domain and a set inactive dimension", () => {
-    expect(explain(model, { b: undefined })).toMatchObject({ valid: false, reasons: [{ kind: "missing", dimension: "a" }] });
-    expect(explain(model, { a: "one", b: undefined })).toMatchObject({ valid: false, reasons: [{ kind: "outside-domain", dimension: "a", value: "one" }] });
-    expect(explain(model, { a: 1, b: "x" })).toMatchObject({ valid: false, reasons: [{ kind: "inactive", dimension: "b", value: "x" }] });
+  it("reports a missing free dimension, a value outside its domain, something that is not a value and data that is not a record", () => {
+    expect(explainData(model, { b: undefined })).toEqual({ valid: false, reasons: [{ kind: "missing", dimension: "a" }] });
+    expect(explainData(model, { a: "one", b: undefined })).toEqual({ valid: false, reasons: [{ kind: "outside-domain", dimension: "a", value: "one" }] });
+    const nested = { deep: true };
+    expect(explainData(model, { a: nested, b: undefined })).toEqual({ valid: false, reasons: [{ kind: "not-a-value", dimension: "a", value: nested }] });
+    expect(explainData(model, [1])).toEqual({ valid: false, reasons: [{ kind: "not-a-record", value: [1] }] });
+    expect(explainData(model, null)).toEqual({ valid: false, reasons: [{ kind: "not-a-record", value: null }] });
   });
 
-  it("reports a first-valid dimension with no acceptable candidate", () => {
-    const stuck = defineModel({ dimensions: [choice("a", [1]), firstValid("c", ["low"])], rules: [{ excludes: { is: ["c", "low"] } }] });
-    expect(explain(stuck, { a: 1 })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }] });
+  it("never evaluates a constraint on a value outside its dimension's domain", () => {
+    const seen: unknown[] = [];
+    const watched = defineModel({ dimensions: [choice("a", [1, 2])], constraints: [predicate({ reads: ["a"], test: ({ a }) => seen.push(a) > 0 })] });
+    expect(explainData(watched, { a: 3 })).toEqual({ valid: false, reasons: [{ kind: "outside-domain", dimension: "a", value: 3 }] });
+    expect(seen).toEqual([]);
   });
 });

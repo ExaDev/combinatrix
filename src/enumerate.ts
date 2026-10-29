@@ -1,6 +1,6 @@
 import { combinationId } from "./engine";
 import { LimitExceededError, StrategyError } from "./errors";
-import { explain } from "./explain";
+import { explainRecord } from "./explain";
 import type { Model, ModelParts } from "./model";
 import { domainOf } from "./model";
 import { countSearch, searchCombinations } from "./search";
@@ -63,7 +63,7 @@ export function* combinations<T extends Readonly<Record<string, Value>>>(model: 
 function idOf(model: ModelParts, strategy: Strategy, values: Readonly<Record<string, Value>>): string {
   if (strategy === full) return combinationId(model.dimensions, values);
 
-  const explanation = explain(model, values);
+  const explanation = explainRecord(model, values);
   if (!explanation.valid) throw new StrategyError(`strategy "${strategy.name}" produced a record outside the solution set: ${explanation.reasons.map((reason) => reason.kind).join(", ")}`);
 
   return explanation.id;
