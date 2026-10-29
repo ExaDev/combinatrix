@@ -311,6 +311,67 @@ true
 */
 ```
 
+The enumeration order is fixed, so a position in it is enough to find a combination without producing the ones before it. `at` returns the combination at an index, or `undefined` past the end, and `indexOf` gives the index of a combination, or `-1` for one `explain` would refuse. `samples` draws combinations uniformly at random through a function you pass, which returns an integer below the bound it is given, so a seeded generator makes the sample reproducible. None of them keeps more than one combination in memory, so they page through and sample a solution set too large to `collect`.
+
+```ts
+// examples/09-paging.ts
+import { at, choice, count, defineModel, indexOf, samples } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+    choice("runtime", [undefined, "node", "bun"]),
+  ],
+  rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
+});
+
+const size = count(model);
+console.log(at(model, size - 1)?.values);
+/*
+{ os: 'windows', arch: 'arm64', runtime: 'node' }
+*/
+
+console.log(at(model, size));
+/*
+undefined
+*/
+
+console.log(indexOf(model, { os: "macos", arch: "x64", runtime: "bun" }));
+/*
+8
+*/
+
+console.log(indexOf(model, { os: "windows", arch: "x64", runtime: "bun" }));
+/*
+-1
+*/
+
+// A seeded generator (Park and Miller's minimal standard), so the sample is the same every run.
+const MODULUS = 2_147_483_647;
+const MULTIPLIER = 48_271;
+const SEED = 20_261_029;
+let state = SEED;
+const random = (bound: number): number => {
+  state = (state * MULTIPLIER) % MODULUS;
+
+  return Math.floor((state / MODULUS) * bound);
+};
+
+const SAMPLE_SIZE = 3;
+let drawn = 0;
+for (const { values } of samples(model, { random })) {
+  console.log(values);
+  drawn += 1;
+  if (drawn === SAMPLE_SIZE) break;
+}
+/*
+{ os: 'macos', arch: 'x64', runtime: undefined }
+{ os: 'windows', arch: 'arm64', runtime: undefined }
+{ os: 'macos', arch: 'arm64', runtime: undefined }
+*/
+```
+
 ## API
 
 ### Typed and untyped routes
@@ -354,6 +415,15 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 - `collect(model, { strategy?, limit?, signal? })`: the same as an array. With a `limit` it throws `LimitExceededError` rather than materialising more than that; with none it materialises the whole selection, so memory grows with the size of the solution set.
 - `count(model, { limit?, signal? })`: the size of the solution set without building it, throwing `LimitExceededError` as soon as the count passes `limit` when one is given. A suffix of dimensions that no constraint, condition or candidate list touches is counted as a product without being visited.
 
+### Random access and sampling
+
+The order `combinations` produces with `full` is fixed, so each combination has an index in it. These functions find one from the other by counting the combinations under each choice on one path from the root, never by producing the combinations before it, so their memory does not grow with the solution set. Each counts at most one subtree per option of each dimension on that path, and a subtree whose remaining dimensions no constraint, condition or candidate list touches is counted as a product without being visited, and any other subtree is searched as `count` searches it. An index is exact only while counts stay within `Number.MAX_SAFE_INTEGER`, and a count past it throws `RangeError` rather than giving a rank that may have been rounded.
+
+- `at(model, index, { signal? })`: the combination at `index` as `{ id, values }`, equal to the one `combinations(model)` produces there, or `undefined` when the solution set has `index` combinations or fewer. An index that is not a non-negative integer throws `RangeError`; a negative one does not count from the end.
+- `indexOf(model, combination, { signal? })`: the index of a combination, so that `at` returns it, or `-1` when it is not in the solution set, exactly when `explain` answers `valid: false` (call it for the reasons). The combination is typed as for `explain`.
+- `indexOfData(model, data, { signal? })`: the same for untyped data, `-1` exactly when `explainData` refuses it. Derived dimensions may be left out.
+- `samples(model, { random, signal? })`: a generator of combinations drawn uniformly at random, independently and with replacement, without end; the caller stops it. `random(bound)` returns an integer at least 0 and below `bound`, and is the only source of randomness, so a seeded one makes the draws reproducible. The solution set is counted once, on the first advance, and each draw is one `at`. An empty solution set yields nothing, and a `random` that returns anything else throws `RangeError`.
+
 ### Diagnostics
 
 - `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, an active conditional dimension left unset when its values do not list unset, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule).
@@ -362,11 +432,11 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 ### Errors
 
-Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit`), `ConstraintContractError` and `StrategyError`. A limit that is not a non-negative integer throws `RangeError`.
+Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit`), `ConstraintContractError` and `StrategyError`. A limit or index that is not a non-negative integer throws `RangeError`, as do a count past `Number.MAX_SAFE_INTEGER` where an exact index is needed and a `random` source that returns anything but an integer below its bound.
 
 ### Cancellation
 
-`count`, `collect`, `diagnose` and `combinations` take an optional `signal: AbortSignal`. When it aborts they throw `signal.reason`, as `signal.throwIfAborted()` does, and return nothing: `collect` returns no array and `diagnose` no diagnosis. A signal that is already aborted throws before any work, on the first advance for `combinations`. The search reads the signal at a fixed interval of steps, a step being one visit to a node of the search tree, so a bounded amount of work runs after the abort; `combinations` also checks it before producing each combination.
+`count`, `collect`, `diagnose`, `combinations`, `at`, `indexOf`, `indexOfData` and `samples` take an optional `signal: AbortSignal`. When it aborts they throw `signal.reason`, as `signal.throwIfAborted()` does, and return nothing: `collect` returns no array and `diagnose` no diagnosis. A signal that is already aborted throws before any work, on the first advance for `combinations` and `samples`. The search reads the signal at a fixed interval of steps, a step being one visit to a node of the search tree, so a bounded amount of work runs after the abort; `combinations` also checks it before producing each combination, and `samples` before each draw.
 
 ## Extending
 
