@@ -109,7 +109,7 @@ export const ModelSchema = z
   })
   .meta({
     id: "Model",
-    description: "The serialisable data of a model: the input of `defineModel` where every part is JSON. Dimension names must be unique, and every dimension or value a condition or rule mentions must exist in the model; those are checked by `defineModel`, which this schema cannot express.",
+    description: "The serialisable data of a model: what `parseModel` takes, the input of `defineModel` where every part is JSON. Dimension names must be unique, and every dimension or value a condition or rule mentions must exist in the model; those are checked by `defineModel`, which `parseModel` calls and which this schema cannot express.",
   });
 
 /** The dialect Zod emits for the `draft-2020-12` target. */
