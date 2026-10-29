@@ -1,3 +1,9 @@
+## [2.0.2](https://github.com/ExaDev/combinatrix/compare/v2.0.1...v2.0.2) (2026-10-29)
+
+### Performance Improvements
+
+* evaluate each tree through trilean's compiled form ([05664da](https://github.com/ExaDev/combinatrix/commit/05664dafa164f569e9f75e112eec762fc7efc8b6))
+
 ## [2.0.1](https://github.com/ExaDev/combinatrix/compare/v2.0.0...v2.0.1) (2026-10-29)
 
 ### Bug Fixes
