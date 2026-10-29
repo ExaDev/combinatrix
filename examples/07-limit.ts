@@ -18,8 +18,10 @@ try {
 } catch (error) {
   if (!(error instanceof LimitExceededError)) throw error;
 
+  console.log(error.bound);
   console.log(error.message);
 }
 /*
+solution-set
 the solution set has more than 5 combinations
 */

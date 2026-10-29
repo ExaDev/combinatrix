@@ -22,6 +22,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   "07-limit.ts": async () => import("../examples/07-limit"),
   "08-cancellation.ts": async () => import("../examples/08-cancellation"),
   "09-paging.ts": async () => import("../examples/09-paging"),
+  "10-typed.ts": async () => import("../examples/10-typed"),
 };
 
 const FILES = Object.keys(LOADERS);
@@ -191,7 +192,7 @@ describe("the advanced example", () => {
 describe("the limit example", () => {
   it("counts the product when the limit equals its size, then refuses a collection one short of it, saying the limit", async () => {
     const size = OS.length * ARCH.length;
-    expect(await printedOf("07-limit.ts")).toEqual([String(size), `the solution set has more than ${String(size - 1)} combinations`]);
+    expect(await printedOf("07-limit.ts")).toEqual([String(size), "solution-set", `the solution set has more than ${String(size - 1)} combinations`]);
   });
 });
 
@@ -218,6 +219,15 @@ describe("the paging example", () => {
       return survivors[Math.floor((state / MODULUS) * survivors.length)];
     });
     expect((await printedOf("09-paging.ts")).slice(BEFORE_SAMPLE)).toEqual(drawn.map((values) => format(values)));
+  });
+});
+
+describe("the typed example", () => {
+  const TARGET_OS = { linux: "linux", macos: "apple-darwin", windows: "windows" } as const;
+
+  it("computes each target from its os and arch, leaving out the excluded pair, and explains a wrong target by the derived one and the rule", async () => {
+    const targets = OS.flatMap((os) => ARCH.filter((arch) => !(os === "windows" && arch === "arm64")).map((arch) => `${arch}-${TARGET_OS[os]}`));
+    expect(await printedOf("10-typed.ts")).toEqual([...format(targets).split("\n"), `arm64-${TARGET_OS.windows}`, "no arm64 on windows"]);
   });
 });
 
