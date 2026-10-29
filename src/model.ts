@@ -136,25 +136,41 @@ function checkModel(dimensions: readonly Dimension[], rules: readonly Rule[], co
 }
 
 function checkDimension(dimension: Dimension, earlier: ReadonlyMap<string, number>): string[] {
-  const issues: string[] = [];
   const label = `dimension "${dimension.name}"`;
-  if (dimension.name.length === 0) issues.push("a dimension has an empty name");
+  const issues = dimension.kind === "computed" ? nameIssues(dimension.name) : domainIssues(dimension.name, domainOf(dimension));
   if (dimension.kind === "computed") {
     for (const read of dimension.reads) {
       if (!earlier.has(read)) issues.push(`${label} reads "${read}", which is not a dimension declared before it`);
     }
-  } else {
-    const values = domainOf(dimension);
-    if (values.length === 0) issues.push(`${label} has no values`);
-    const seen = new Set<string>();
-    for (const value of values) {
-      if (value !== undefined && !isScalar(value)) issues.push(`${label} has value ${String(value)}, which is not a JSON scalar`);
-      const key = valueKey(value);
-      if (seen.has(key)) issues.push(`${label} lists ${describeValue(value)} more than once`);
-      seen.add(key);
-    }
   }
   if (dimension.activeWhen !== undefined) issues.push(...checkActivity(dimension.activeWhen, label, earlier));
+
+  return issues;
+}
+
+/** The defects of a dimension's name alone: it must not be empty. */
+function nameIssues(name: string): string[] {
+  return name.length === 0 ? ["a dimension has an empty name"] : [];
+}
+
+/**
+ * Every defect in a choice or first-valid dimension's name and domain that does not depend on the rest of the model: an empty name, an empty domain, a value that is not a JSON scalar (unset, `undefined`, is allowed) and a value listed twice. `defineModel` checks each dimension with it, and so does `isModelData`, which is what makes the two agree on the data a JSON Schema can state.
+ */
+export function domainIssues(name: string, values: readonly unknown[]): string[] {
+  const issues = nameIssues(name);
+  const label = `dimension "${name}"`;
+  if (values.length === 0) issues.push(`${label} has no values`);
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (value !== undefined && !isScalar(value)) {
+      issues.push(`${label} has ${typeof value === "number" ? `value ${String(value)}` : `a value of type ${Array.isArray(value) ? "array" : typeof value}`}, which is not a JSON scalar`);
+      continue;
+    }
+
+    const key = valueKey(value);
+    if (seen.has(key)) issues.push(`${label} lists ${describeValue(value)} more than once`);
+    seen.add(key);
+  }
 
   return issues;
 }
