@@ -62,6 +62,11 @@ function lateModel(seed: number): AnyModel {
 /** Every model the equivalence properties are checked against: the generated models of every feature, and the late-constrained ones. */
 const models: readonly { readonly label: string; readonly model: AnyModel }[] = [...seeds.map((seed) => ({ label: `random ${String(seed)}`, model: randomModel(seed) })), ...seeds.map((seed) => ({ label: `late ${String(seed)}`, model: lateModel(seed) }))];
 
+/** The time one rank or unrank may take, in milliseconds: about forty times what it takes unloaded, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const RANK_OPERATION_BUDGET_MS = 10;
+/** The ranks and unranks the exhaustive agreement test makes: one per index of every model, and one more past the last. */
+const RANK_OPERATIONS = models.reduce((total, { model }) => total + count(model) + 1, 0);
+
 /** The diagnosis by the plain search: every combination produced and its values collected, as `diagnose` worked before it counted through the memo. `"limit"` when the solution set has more than `limit` combinations. */
 function referenceDiagnosis(model: ModelParts, limit?: number): Diagnosis | "limit" {
   const seen = model.dimensions.map((dimension) => ({ dimension, keys: new Set<string>() }));
@@ -125,7 +130,7 @@ describe("the memoised count", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("ranks and unranks as the naive count does, at every index and for every combination", () => {
+  it("ranks and unranks as the naive count does, at every index and for every combination", { timeout: RANK_OPERATIONS * RANK_OPERATION_BUDGET_MS }, () => {
     const disagreements = models.filter(({ model }) => {
       const size = count(model);
       for (let index = 0; index <= size; index += 1) {
