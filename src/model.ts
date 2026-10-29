@@ -1,7 +1,7 @@
 import type { Condition, Mention } from "./condition";
 import { conditionDependencies, conditionMentions } from "./condition";
 import type { Constraint } from "./constraint";
-import type { Dimension, NameOf, TupleOf } from "./dimension";
+import type { Dimension, TupleOf } from "./dimension";
 import { ModelError } from "./errors";
 import type { Rule } from "./rule";
 import { ruleConditions, ruleConstraint } from "./rule";
@@ -12,8 +12,8 @@ import { describeValue, isScalar, valueKey } from "./value";
 export interface ModelDefinition<Ds extends readonly Dimension[]> {
   /** The dimensions, in enumeration order: the first varies slowest. */
   readonly dimensions: Ds;
-  /** Declarative constraints, as JSON-shaped data. */
-  readonly rules?: readonly Rule<NameOf<Ds>>[];
+  /** Declarative constraints, as JSON-shaped data. Typed with plain string names so rules read from JSON are accepted as they are; `defineModel` checks every name and value against the dimensions. Annotate a literal as `Rule<NameOf<typeof dimensions>>` to have the compiler check its names too. */
+  readonly rules?: readonly Rule[];
   /** Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. */
   readonly constraints?: readonly Constraint[];
 }
