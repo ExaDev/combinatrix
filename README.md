@@ -1,5 +1,7 @@
 # combinatrix
 
+[![GitHub](https://img.shields.io/badge/GitHub-181717?logo=github&logoColor=white)](https://github.com/ExaDev/combinatrix) [![npm](https://img.shields.io/badge/npm-CB3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/combinatrix) [![Release](https://img.shields.io/github/v/release/ExaDev/combinatrix)](https://github.com/ExaDev/combinatrix/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/ExaDev/combinatrix/ci.yml?branch=main)](https://github.com/ExaDev/combinatrix/actions)
+
 Lazily enumerates every valid combination of option dimensions: a typed set of choices, declarative constraints between them, values derived from the others and dimensions that only matter when another is set, with a stable id for each combination and a reason for each one left out.
 
 It has no runtime dependencies and imports nothing runtime-specific, so it runs in Node, Deno, Bun, workers and browsers alike.
