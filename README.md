@@ -313,11 +313,17 @@ true
 
 ## API
 
+### Typed and untyped routes
+
+A model written in code is checked by the compiler as far as its types can show: domains are non-empty, dimension names are unique, every rule, condition, `activeWhen`, computed `reads` and `predicate` names only dimensions declared where it may (before it, or before a first-valid dimension it constrains) and compares each with values from that dimension's own domain, testing `unset` only where the dimension's type includes `undefined`, and `explain` takes exactly one of the model's combinations (`CombinationOf<typeof model>`). A refused `defineModel` argument names each defect in an `error` property it lacks. Whether the rules can be satisfied and which values are dead needs a search, so that stays with `diagnose` at runtime.
+
+Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: rules parsed from JSON go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
+
 ### Dimensions
 
-- `choice(name, values, options?)`: a free dimension over `values`, in order. Include `undefined` to make unset one of the choices. `values` is typed non-empty (`NonEmpty<V>`), so an empty list is a compile error; narrow a list built at runtime with `isNonEmpty(values)` first.
+- `choice(name, values, options?)`: a free dimension over `values`, in order. Include `undefined` to make unset one of the choices.
 - `sampled(name, sampler, options?)`: a free dimension whose values are the finite points `sampler()` returns, called once when the model is defined. This is the only way a continuous range enters a model.
-- `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. `candidates` is typed non-empty, as for `choice`. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
+- `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
 - `computed(name, { reads, compute, activeWhen? })`: a derived dimension computed by a pure function of the dimensions in `reads`, each declared before it.
 
 `options.activeWhen` is a condition on dimensions declared before this one. Where it does not hold, the dimension is unset, and its type gains `undefined`.
@@ -336,13 +342,11 @@ A condition is JSON-shaped data:
 | `{ unset: dimension }` | the dimension is unset |
 | `{ all: [...] }`, `{ any: [...] }`, `{ not: condition }` | conjunction, disjunction, negation |
 
-A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`. Rules and conditions are evaluated with Kleene's three-valued logic, so a test on an unassigned dimension is unknown and an `any` with one true operand is true whatever the others are. `{ unset: dimension }` is refused for a dimension that can never be unset.
-
-Rules and conditions written in code are typed (`TypedRule<T>`, `TypedCondition<T>`, where `T` is the combination type) and checked against the dimensions at compile time: an unknown dimension, a value outside the named dimension's domain, or `unset` on a dimension whose type has no `undefined` does not compile. Rules that arrive as data go through `parseRules(dimensions, data)`, which checks them at runtime, throws `ModelError` listing every defect and returns them typed for `defineModel`; `isRule(value)` and `isCondition(value)` check only the shape. `defineModel` checks every rule again at runtime, since data can bypass the types.
+A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`. Rules and conditions are evaluated with Kleene's three-valued logic, so a test on an unassigned dimension is unknown and an `any` with one true operand is true whatever the others are. `{ unset: dimension }` is refused for a dimension that can never be unset. A rule written apart from the model is typed `TypedRule<CombinationOf<typeof model>>` (or `TypedRule<TupleOf<typeof dimensions>>`); `isRule(value)` and `isCondition(value)` check only the shape of data.
 
 ### Models
 
-`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it. Where the definition is written in code, the compiler refuses what its types can show of the same list (a duplicate name, an activity condition, computed `reads`, rule or `predicate` mentioning an unknown or later dimension or a value a dimension can never take, and a first-valid dimension constrained with a later one), naming each defect in an `error` property the argument lacks. A part whose type is not literal, such as a name typed `string`, a `Condition` read from data or a third-party `Constraint`, is checked at runtime only.
+`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
 
 ### Enumerating
 
@@ -352,8 +356,8 @@ Rules and conditions written in code are typed (`TypedRule<T>`, `TypedCondition<
 
 ### Diagnostics
 
-- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule). The record is typed as one of the model's combinations (`CombinationOf<typeof model>`), so a missing or unknown dimension or a value outside a domain is a compile error.
-- `explainData(model, data)`: the same for data the compiler cannot check, such as parsed JSON or user input. It also reports data that is not an object, an unknown or missing dimension, a value outside its domain and something that is not a value at all; a value outside its domain is never passed on to a constraint. Derived dimensions may be left out.
+- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule).
+- `explainData(model, data)`: the same for untyped data, also reporting data that is not an object, an unknown or missing dimension, a value outside its domain (never passed on to a constraint) and something that is not a value at all. Derived dimensions may be left out.
 - `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes.
 
 ### Errors
@@ -380,7 +384,7 @@ interface Constraint {
 
 The assignment maps each assigned dimension to its value; a dimension absent from the map is unassigned, and one mapped to `undefined` is set to unset. An implementation names every dimension it reads in `dependencies`, is pure, and is monotone: a `valid` or `invalid` answer on a partial assignment must hold for every extension of it, so answering `unknown` is always safe before every dependency is assigned. Once every dependency is assigned it must answer `valid` or `invalid`; `unknown` then throws `ConstraintContractError`. Pass implementations as `constraints` to `defineModel`.
 
-`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, the predicate is bound to the model: `reads` must name its dimensions and `test` receives each read dimension's own value type. The standalone `predicate` types `test` with plain `Value`s but still has its `reads` checked by `defineModel`.
+`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, it is bound to the model and `test` receives each read dimension's own value type; the standalone form passes plain `Value`s.
 
 ### Strategies
 
