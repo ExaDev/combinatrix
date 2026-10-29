@@ -4,7 +4,7 @@ import type { Model } from "./model";
 import { defineModel, domainIssues, ruleIssues } from "./model";
 import type { Rule, TypedRule } from "./rule";
 import { isRecord, isRule, modelShapeIssues } from "./shape";
-import type { Scalar, Value } from "./value";
+import type { Scalar, Value, ValueRecord } from "./value";
 
 /**
  * Parses rules that arrive as data (parsed JSON, a configuration file) against the dimensions they are for, returning them typed so they can be passed to `defineModel` with no cast. Throws `ModelError` listing every defect: data that is not an array, an element that is not a well-formed rule, a mention of an unknown dimension, and a comparison with a value a dimension can never take. The dimensions' order and the first-valid restriction are checked by `defineModel`, which sees the whole model.
@@ -86,8 +86,10 @@ export function isModelData(value: unknown): value is ModelData {
  * Parses a whole model that arrives as data (parsed JSON, a configuration file) and returns it, the untyped route for models as `parseRules` is for rules. Throws `ModelError` listing every defect: first those of the data's shape (`isModelData`), then, once it has the shape, every refusal `defineModel` makes of the model it describes (a repeated name, an activity condition or rule naming an unknown or later dimension, a comparison with a value a dimension can never take, a first-valid dimension constrained together with a later one).
  *
  * The dimension names and values are known only at runtime, so the result is a `Model` of combinations that map every name to a scalar or `undefined`: `defineModel` with literals would type each name and each domain, so that `explain` refuses a misspelt dimension or an impossible value at compile time and `CombinationOf` gives each combination's exact type, where here every record of scalars is accepted by the compiler and checked by `isTuple` and `explainData` at runtime. Unset is not a JSON value: a dimension is unset only where its `activeWhen` does not hold, which is how `defineModel` treats a dimension with no `undefined` in its domain.
+ *
+ * The compile-time checks `defineModel` makes of a model written in code do not apply, since the dimensions are `Dimension[]` with string names and unknown domains: a non-empty domain, a unique name, a condition or rule naming only dimensions declared before it and values a dimension can take are all checked at runtime by `defineModel` instead, and reported in the `ModelError`.
  */
-export function parseModel(data: unknown): Model<Readonly<Record<string, Value>>> {
+export function parseModel(data: unknown): Model<ValueRecord> {
   if (!isModelData(data)) throw new ModelError(modelDataIssues(data));
 
   // Typed as the widest dimension, so a rule may test `unset` and compare with any value, as the data cannot say which dimension is conditional until `defineModel` has checked it.
