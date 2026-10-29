@@ -1,3 +1,4 @@
+import type { AbortSignalLike } from "./cancellation";
 import { stepCheck } from "./cancellation";
 import { conditionDependencies } from "./condition";
 import type { Step } from "./engine";
@@ -31,7 +32,7 @@ export interface SearchOptions {
   /** Restricts each dimension it names to that value. */
   readonly fixed?: PartialAssignment | undefined;
   /** Aborting it makes the search throw the signal's reason. */
-  readonly signal?: AbortSignal | undefined;
+  readonly signal?: AbortSignalLike | undefined;
 }
 
 /**
@@ -72,7 +73,7 @@ export type LimitedCompletionCount = (search: CountingSearch, depth: number, ass
 /** What `countSearch` takes besides the model and limit; each may be absent. */
 export interface CountSearchOptions {
   /** Aborting it makes the count throw the signal's reason. */
-  readonly signal?: AbortSignal | undefined;
+  readonly signal?: AbortSignalLike | undefined;
   /** How the solution set is counted. Defaults to the memoised `countCompletions`; a test passes `naiveCompletions` to compare the two. */
   readonly completions?: LimitedCompletionCount | undefined;
 }
@@ -101,7 +102,7 @@ export interface SearchDiagnosis {
 /**
  * The size of the solution set and the values each dimension takes in it, from the memoised suffix counts rather than from the combinations: a value is live exactly when some assignment the search reaches offers it, admits it, and leaves a positive count of completions under it. The walk visits each frontier state of each depth once and descends only into states with a positive count, so it costs no more than the count itself plus one memoised lookup per option of each visited state. Returns `undefined` as soon as the count exceeds `limit`, at the same boundary as `countSearch`; an aborted `signal` throws its reason as `countSearch` does.
  */
-export function diagnoseSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): SearchDiagnosis | undefined {
+export function diagnoseSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignalLike): SearchDiagnosis | undefined {
   const search = countingSearch(model, signal);
   const live = search.steps.map(() => new Set<string>());
   if (rejectedOutright(model)) return { count: 0, live };
@@ -189,7 +190,7 @@ export interface CountingSearch {
 }
 
 /** The counting context for one operation on a model, with an empty memo. An already aborted `signal` throws its reason here, before any step. */
-export function countingSearch(model: ModelParts, signal: AbortSignal | undefined): CountingSearch {
+export function countingSearch(model: ModelParts, signal: AbortSignalLike | undefined): CountingSearch {
   const checkStep = stepCheck(signal);
   const steps = stepsOf(model);
 
@@ -333,7 +334,7 @@ export function exactCount(total: number): number {
 /** What `unrankSearch` and `rankSearch` take besides the model; each may be absent. */
 export interface RankingOptions {
   /** Aborting it makes the walk throw the signal's reason. */
-  readonly signal?: AbortSignal | undefined;
+  readonly signal?: AbortSignalLike | undefined;
   /** How a subtree is counted. Defaults to `exactCompletions`; a test injects a broken count to show the properties catch it. */
   readonly count?: CompletionCount | undefined;
 }

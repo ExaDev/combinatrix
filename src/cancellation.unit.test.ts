@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { STEPS_PER_ABORT_CHECK } from "./cancellation";
-import type { Strategy } from "./index";
+import type { AbortSignalLike, Strategy } from "./index";
 import { choice, collect, combinations, count, defineModel, diagnose, full, isNonEmpty, predicate } from "./index";
 
 const REASON = new Error("stopped by the caller");
@@ -159,7 +159,7 @@ describe("a signal given to a strategy", () => {
   const model = defineModel({ dimensions: [choice("a", ["x", "y", "z"])] });
 
   it("reaches the strategy through its context, and is absent when none was given", () => {
-    const seen: (AbortSignal | undefined)[] = [];
+    const seen: (AbortSignalLike | undefined)[] = [];
     const spy: Strategy = {
       name: "spy",
       select: (context) => {

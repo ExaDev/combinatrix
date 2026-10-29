@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { hashTest, Random, randomModel, seeds, VALUE_POOL } from "../test/random-model";
 import type { Constraint, Diagnosis, Dimension, Model, ModelParts, Value } from "./index";
 import { at, choice, computed, count, defineModel, diagnose, firstValid, indexOf, isNonEmpty, LimitExceededError, predicate } from "./index";
-import { domainOf } from "./model";
+import { domainOf } from "./dimension";
 import type { CompletionCount, CountingSearch } from "./search";
 import { countCompletions, countingSearch, countSearch, naiveCompletions, rankSearch, searchCombinations, unrankSearch } from "./search";
 import { valueKey } from "./value";
@@ -81,7 +81,7 @@ function referenceDiagnosis(model: ModelParts, limit?: number): Diagnosis | "lim
 }
 
 /** `diagnose`, with a refusal at the limit reported as `"limit"`. */
-function diagnosisOf(model: ModelParts, limit?: number): Diagnosis | "limit" {
+function diagnosisOf(model: AnyModel, limit?: number): Diagnosis | "limit" {
   try {
     return diagnose(model, limit === undefined ? {} : { limit });
   } catch (error) {

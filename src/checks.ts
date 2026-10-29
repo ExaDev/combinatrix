@@ -42,8 +42,16 @@ type ActivityDefect<H extends Dimension, Before extends Readonly<Record<string, 
         : `dimension "${H["name"]}" is active depending on "${Exclude<MentionedNames<NonNullable<C>>, keyof Before>}", which is not a dimension declared before it`
     : never;
 
-/** The defect in a computed dimension's reads against the dimensions declared before it. */
-type ReadsDefect<H extends Dimension, Before extends Readonly<Record<string, Value>>> = H extends { readonly kind: "computed"; readonly reads: readonly (infer R extends string)[] } ? (string extends R ? never : [Exclude<R, keyof Before>] extends [never] ? never : `dimension "${H["name"]}" reads "${Exclude<R, keyof Before>}", which is not a dimension declared before it`) : never;
+/** The defect in a computed dimension's reads against the dimensions declared before it: a read of a later or unknown dimension, or a `compute` whose parameter type does not accept every value those dimensions can hold, as when a dimension given in `reads` as itself is not the model's own. */
+type ReadsDefect<H extends Dimension, Before extends Readonly<Record<string, Value>>> = H extends { readonly kind: "computed"; readonly reads: readonly (infer R extends string)[]; readonly compute: (values: infer P) => unknown }
+  ? string extends R
+    ? never
+    : [Exclude<R, keyof Before>] extends [never]
+      ? Readonly<Pick<Before, R>> extends P
+        ? never
+        : `dimension "${H["name"]}" computes from values of its reads that do not cover every value those dimensions can hold`
+      : `dimension "${H["name"]}" reads "${Exclude<R, keyof Before>}", which is not a dimension declared before it`
+  : never;
 
 /**
  * Every defect in a tuple of dimensions, walked in declaration order with `Earlier` the dimensions already passed: a name declared twice, an activity condition on a later or unknown dimension or comparing with a value it can never take, and a computed dimension reading a later or unknown one. A dimension whose name is not literal ends the walk, since the names after it can no longer be told apart; an array that is not a tuple is not walked at all.
