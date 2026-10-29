@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { Condition } from "../src/condition";
 import type { ChoiceDimension, FirstValidDimension } from "../src/dimension";
+import type { ModelData } from "../src/guards";
 import type { Rule } from "../src/rule";
 import type { Scalar } from "../src/value";
 import type { ChoiceDimensionSchema, FirstValidDimensionSchema, ModelSchema, RuleSchema, RulesSchema } from "./json-schema";
@@ -17,12 +18,6 @@ type Plain<T> = T extends readonly unknown[] ? { -readonly [K in keyof T]: Plain
 
 /** `true` when each type is assignable to the other once plain, `false` when either accepts something the other does not. */
 type Agree<A, B> = [Plain<A>] extends [Plain<B>] ? ([Plain<B>] extends [Plain<A>] ? true : false) : false;
-
-/** The data form of a model, from the library's own dimension and rule types: choice and first-valid dimensions with literal values, and rules. */
-interface ModelData {
-  readonly dimensions: readonly (ChoiceDimension<string, Scalar> | FirstValidDimension<string, Scalar>)[];
-  readonly rules?: readonly Rule[];
-}
 
 describe("the Zod schemas and the library's data types", () => {
   it("describe the same scalars, conditions, rules and dimensions", () => {
