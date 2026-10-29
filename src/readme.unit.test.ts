@@ -21,6 +21,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   "06-advanced.ts": async () => import("../examples/06-advanced"),
   "07-limit.ts": async () => import("../examples/07-limit"),
   "08-cancellation.ts": async () => import("../examples/08-cancellation"),
+  "09-paging.ts": async () => import("../examples/09-paging"),
 };
 
 const FILES = Object.keys(LOADERS);
@@ -191,6 +192,32 @@ describe("the limit example", () => {
   it("counts the product when the limit equals its size, then refuses a collection one short of it, saying the limit", async () => {
     const size = OS.length * ARCH.length;
     expect(await printedOf("07-limit.ts")).toEqual([String(size), `the solution set has more than ${String(size - 1)} combinations`]);
+  });
+});
+
+describe("the paging example", () => {
+  const survivors = OS.flatMap((os) => ARCH.flatMap((arch) => RUNTIME.filter((runtime) => !(runtime === "bun" && os === "windows")).map((runtime) => ({ os, arch, runtime }))));
+  const MODULUS = 2_147_483_647;
+  const MULTIPLIER = 48_271;
+  const SEED = 20_261_029;
+  const SAMPLE_SIZE = 3;
+  /** The lines printed before the sample: the last combination, past the end, and two indices. */
+  const BEFORE_SAMPLE = 4;
+
+  it("finds the last combination by index, nothing past it, the index of a combination and -1 for an excluded one", async () => {
+    const last = survivors.at(-1);
+    const position = survivors.findIndex(({ os, arch, runtime }) => os === "macos" && arch === "x64" && runtime === "bun");
+    expect((await printedOf("09-paging.ts")).slice(0, BEFORE_SAMPLE)).toEqual([format(last), "undefined", String(position), "-1"]);
+  });
+
+  it("draws the combinations at the indices the seeded generator picks below the count", async () => {
+    let state = SEED;
+    const drawn = Array.from({ length: SAMPLE_SIZE }, () => {
+      state = (state * MULTIPLIER) % MODULUS;
+
+      return survivors[Math.floor((state / MODULUS) * survivors.length)];
+    });
+    expect((await printedOf("09-paging.ts")).slice(BEFORE_SAMPLE)).toEqual(drawn.map((values) => format(values)));
   });
 });
 
