@@ -23,6 +23,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   "08-cancellation.ts": async () => import("../examples/08-cancellation"),
   "09-paging.ts": async () => import("../examples/09-paging"),
   "10-typed.ts": async () => import("../examples/10-typed"),
+  "11-json-model.ts": async () => import("../examples/11-json-model"),
 };
 
 const FILES = Object.keys(LOADERS);
@@ -234,5 +235,19 @@ describe("the typed example", () => {
 describe("the cancellation example", () => {
   it("catches the signal's own reason, and stops the search before it has visited every value", async () => {
     expect(await printedOf("08-cancellation.ts")).toEqual(["true", "true"]);
+  });
+});
+
+describe("the JSON model example", () => {
+  it("lists the model's combinations with the first dimension slowest, the codec the first the rule accepts and unset only where `compress` is off, then the two issues for the rule naming a dimension the model lacks", async () => {
+    const codecs = ["zstd", "brotli"] as const;
+    const expected = (["linux", "windows"] as const).flatMap((os) =>
+      ([true, false] as const).map((compress) => {
+        const codec = compress ? codecs.find((candidate) => !(os === "windows" && candidate === "zstd")) : undefined;
+
+        return format({ os, compress, codec });
+      }),
+    );
+    expect(await printedOf("11-json-model.ts")).toEqual([...expected, 'rule 0 mentions unknown dimension "arch"', 'constraint 0 depends on unknown dimension "arch"']);
   });
 });

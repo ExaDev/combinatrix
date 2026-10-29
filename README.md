@@ -418,6 +418,47 @@ no arm64 on windows
 */
 ```
 
+A model kept in a JSON file takes the untyped route: `parseModel` validates the data against the shape the JSON Schema describes, defines the model it states, and throws `ModelError` listing every defect, as `defineModel` does for one written in code. Unset is not a JSON value, so a dimension is unset only where its `activeWhen` does not hold; the dimension names and values are known only at runtime, so a combination's type is a record of scalars or `undefined` and `explainData` checks a record against the model.
+
+```ts
+// examples/11-json-model.ts
+import { collect, ModelError, parseModel } from "combinatrix";
+
+// The contents of a model file. JSON has no `undefined`, so a dimension is unset only where its `activeWhen` does not hold.
+const text = `{
+  "dimensions": [
+    { "kind": "choice", "name": "os", "values": ["linux", "windows"] },
+    { "kind": "choice", "name": "compress", "values": [true, false] },
+    { "kind": "first-valid", "name": "codec", "candidates": ["zstd", "brotli"], "activeWhen": { "is": ["compress", true] } }
+  ],
+  "rules": [{ "name": "windows has no zstd", "excludes": { "is": ["codec", "zstd"] }, "when": { "is": ["os", "windows"] } }]
+}`;
+
+const data: unknown = JSON.parse(text);
+const model = parseModel(data);
+
+for (const { values } of collect(model)) console.log(values);
+/*
+{ os: 'linux', compress: true, codec: 'zstd' }
+{ os: 'linux', compress: false, codec: undefined }
+{ os: 'windows', compress: true, codec: 'brotli' }
+{ os: 'windows', compress: false, codec: undefined }
+*/
+
+// A rule naming a dimension the model lacks is refused, with every such defect listed.
+try {
+  parseModel({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }], rules: [{ requires: { set: "arch" } }] });
+} catch (error) {
+  if (!(error instanceof ModelError)) throw error;
+
+  for (const issue of error.issues) console.log(issue);
+}
+/*
+rule 0 mentions unknown dimension "arch"
+constraint 0 depends on unknown dimension "arch"
+*/
+```
+
 ## API
 
 ### Typed and untyped routes
@@ -428,7 +469,7 @@ The results are typed by the same dimensions. `explain`'s reasons and `diagnose`
 
 What the types cannot show stays a runtime check. Whether the rules can be satisfied and which values are dead needs a search, so that stays with `diagnose`. A strategy's assignment map types its keys and its values but cannot pair each key with its own dimension's values, so a value another dimension takes agrees with no combination; and every row a strategy yields is still checked against the model, typed or not. A dimension given to a standalone `predicate` as itself is held to its own values when the predicate is evaluated, since a strategy's `test` can pass anything. A record that bypasses the types of `explain` or `indexOf` (a cast, or untyped JavaScript) is refused at runtime rather than explained: `explain` throws `TypeError`.
 
-Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: rules parsed from JSON go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`, whose reasons name dimensions as strings and type what is not even a value as `unknown`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
+Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: a whole model read from JSON goes through `parseModel(data)`, which throws `ModelError` or returns the model; rules parsed from JSON for dimensions written in code go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`, whose reasons name dimensions as strings and type what is not even a value as `unknown`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
 
 ### Dimensions
 
@@ -459,6 +500,8 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 `defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: data that is not well formed (an unknown or misspelt key, a wrong type, a malformed condition), duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
 
+`parseModel(data)` is the same for a model that is JSON data: it throws `ModelError` for data that is not the shape the JSON Schema describes (`isModelData(value)` is that check as a guard for `ModelData`) and otherwise for every refusal `defineModel` makes. It returns a `Model` whose combinations map each name to a scalar or `undefined`. `defineModel` with literals gives a type to each name and domain, so `explain` refuses a misspelt dimension or an impossible value at compile time; the parsed model has only the runtime checks of `explainData` and `isTuple`.
+
 ### JSON Schema
 
 The package ships `schemas/combinatrix.schema.json`, a JSON Schema (draft 2020-12) for the data a configuration file holds: a model with `choice` and `firstValid` dimensions over literal values, `activeWhen` conditions and rules; a list of rules; a single rule; or a single condition. Its `$id` names the package version it ships in, and each definition (`Model`, `Rules`, `Rule`, `Condition`) can be validated against on its own, such as `combinatrix.schema.json#/$defs/Rules`. A rules file for a model with `os`, `arch` and `runtime` dimensions looks like this:
@@ -470,9 +513,9 @@ The package ships `schemas/combinatrix.schema.json`, a JSON Schema (draft 2020-1
 ]
 ```
 
-To have an editor check such files, map their names to the schema in its settings, for example VS Code's `json.schemas` with the `fileMatch` pattern `*.rules.json` and the `url` `./node_modules/combinatrix/schemas/combinatrix.schema.json`. To validate in code, import it through the package's `exports` (`combinatrix/schemas/combinatrix.schema.json`) and give it to a draft 2020-12 validator such as Ajv's `ajv/dist/2020`.
+To have an editor check such files, map their names to the schema in its settings, for example VS Code's `json.schemas` with the `fileMatch` pattern `*.rules.json` and the `url` `./node_modules/combinatrix/schemas/combinatrix.schema.json`. To validate in code, import it through the package's `exports` (`combinatrix/schemas/combinatrix.schema.json`) and give it to a draft 2020-12 validator such as Ajv's `ajv/dist/2020`. To load a model file without a validator, give its parsed contents to `parseModel`, which needs no schema at runtime; `parseRules` loads a rules file for dimensions written in code.
 
-The schema covers only what is data. Computed dimensions, `sampled` domains, `predicate` and every other constraint given through the constraint contract are functions and are not described, and unset is not a JSON value, so a dimension is unset only through `activeWhen`. It states the shape, not what depends on the whole model: that names are unique and that every condition names a dimension and a value the model has are checked by `defineModel`, and `parseRules` checks them for a rules file. A test requires the schema and `isCondition`, `isRule`, `parseRules` and `defineModel` to accept and refuse the same data, and `pnpm build` regenerates the file from the Zod definitions in `scripts/`, which are a development dependency only.
+The schema covers only what is data. Computed dimensions, `sampled` domains, `predicate` and every other constraint given through the constraint contract are functions and are not described, and unset is not a JSON value, so a dimension is unset only through `activeWhen`. It states the shape, not what depends on the whole model: that names are unique and that every condition names a dimension and a value the model has are checked by `defineModel`, and `parseModel` and `parseRules` check them for a model file and a rules file. A test requires the schema and `isCondition`, `isRule`, `isModelData`, `parseModel`, `parseRules` and `defineModel` to accept and refuse the same data, and `pnpm build` regenerates the file from the Zod definitions in `scripts/`, which are a development dependency only.
 
 ### Enumerating
 
