@@ -34,7 +34,7 @@ export type Explanation = { readonly valid: true; readonly id: string } | { read
 export type ExactRecord<T, R extends T> = R & Readonly<Record<Exclude<keyof R, keyof T>, never>>;
 
 /**
- * Explains whether a combination is in the model's solution set, and if not, every reason why. The record is typed as one of the model's combinations, so a missing dimension, an unknown one or a value outside a domain is a compile error; what remains to report is an inactive dimension that is set, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate and each constraint that rejects the record. For a record that arrives untyped (parsed JSON, user input), use `explainData`.
+ * Explains whether a combination is in the model's solution set, and if not, every reason why. The record is typed as one of the model's combinations, so a missing dimension, an unknown one or a value outside a domain is a compile error; what remains to report is an inactive dimension that is set, an active conditional dimension left unset when its values do not list unset (reported as `outside-domain`, since the type of a conditional dimension includes `undefined`), a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate and each constraint that rejects the record. For a record that arrives untyped (parsed JSON, user input), use `explainData`.
  */
 export function explain<T extends Readonly<Record<string, Value>>, R extends T>(model: Model<T>, values: ExactRecord<T, R>): Explanation {
   return explainRecord(model, values);
@@ -49,7 +49,8 @@ export function explainData(model: ModelParts, data: unknown): Explanation {
   return explainRecord(model, data);
 }
 
-function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+/** Whether data is a plain object, which is what a record keyed by dimension name must be. */
+export function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -82,6 +83,11 @@ export function explainRecord(model: ModelParts, values: Readonly<Record<string,
       case "choice":
         if (!given) {
           reasons.push({ kind: "missing", dimension: name });
+          continue;
+        }
+        // An active dimension takes one of its own values: unset is one only when they list it, although `possibleKeys` admits it for every conditional dimension because an inactive one is unset.
+        if (value === undefined && !dimension.values.includes(undefined)) {
+          reasons.push({ kind: "outside-domain", dimension: name, value });
           continue;
         }
         break;

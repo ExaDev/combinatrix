@@ -176,6 +176,14 @@ describe("explain", () => {
     expect(explain(model, { a: 1, b: "x", c: "low" })).toEqual({ valid: false, reasons: [{ kind: "inactive", dimension: "b", value: "x" }] });
   });
 
+  it("reports an active conditional dimension left unset when its values do not list unset, as a value outside its domain", () => {
+    const conditional = defineModel({ dimensions: [choice("a", [1, 2]), choice("b", ["x", "y"], { activeWhen: { is: ["a", 2] } })] });
+    expect(explain(conditional, { a: 2, b: undefined })).toEqual({ valid: false, reasons: [{ kind: "outside-domain", dimension: "b", value: undefined }] });
+    expect(explain(conditional, { a: 1, b: undefined }).valid).toBe(true);
+    const unsetWhileActive: Strategy = { name: "unset while active", select: () => [{ a: 2, b: undefined }] };
+    expect(() => [...combinations(conditional, { strategy: unsetWhileActive })]).toThrow(StrategyError);
+  });
+
   it("reports a first-valid dimension with no acceptable candidate, and the constraint the given candidate breaks", () => {
     const stuck = defineModel({ dimensions: [choice("a", [1]), firstValid("c", ["low"])], rules: [{ excludes: { is: ["c", "low"] } }] });
     expect(explain(stuck, { a: 1, c: "low" })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }, { kind: "constraint", index: 0, constraint: stuck.constraints[0], rule: stuck.rules[0] }] });
