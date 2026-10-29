@@ -73,6 +73,9 @@
     "prepare": "husky",
     "prepublishOnly": "pnpm run lint:check && pnpm run typecheck && pnpm run build && pnpm run test && publint && attw --pack --profile esm-only",
     "release": "semantic-release",
+    "site:build": "vite build --config site/vite.config.ts",
+    "site:dev": "vite --config site/vite.config.ts",
+    "site:preview": "vite preview --config site/vite.config.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json && tsc -p site/tsconfig.json && tsc -p site/tsconfig.worker.json"
   },

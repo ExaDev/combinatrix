@@ -1,0 +1,553 @@
+import type { Value } from "combinatrix";
+
+import type { SpawnWorker } from "./client";
+import { CancelledError, EngineClient } from "./client";
+import { EXAMPLES, exampleText } from "./examples";
+import { unreachable } from "./exhaustive";
+import type { SharedState } from "./fragment";
+import { shareUrl } from "./fragment";
+import { DEFAULT_LIST_LIMIT, DEFAULT_STRENGTH, MAX_LIST_LIMIT } from "./limits";
+import type { DimensionSummary, Failure, Request, Response, Result, Row, Verification } from "./protocol";
+import { isOp } from "./protocol";
+import { describeFailure, describeReason, describeValue } from "./reasons";
+import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
+import { restoreFrom } from "./restore";
+import { SavedModels } from "./saved";
+
+/** How long after the last keystroke the editor's text is checked, so typing does not start a check per key. */
+const VALIDATE_DEBOUNCE_MS = 250;
+
+/** The example the editor starts with when the location asks for nothing else: the one that shows a rule. */
+const STARTING_EXAMPLE = 1;
+
+/** The file Export writes. */
+const EXPORT_FILE_NAME = "combinatrix-model.json";
+
+function byId<T extends HTMLElement>(id: string, type: new () => T): T {
+  const found = document.getElementById(id);
+  if (!(found instanceof type)) throw new Error(`#${id} is not a ${type.name}`);
+
+  return found;
+}
+
+const editor = byId("model", HTMLTextAreaElement);
+const validation = byId("validation", HTMLDivElement);
+const exampleSelect = byId("example", HTMLSelectElement);
+const copyLink = byId("copy-link", HTMLButtonElement);
+const exportButton = byId("export", HTMLButtonElement);
+const importInput = byId("import", HTMLInputElement);
+const linkStatus = byId("link-status", HTMLParagraphElement);
+const linkField = byId("link", HTMLInputElement);
+const saveName = byId("save-name", HTMLInputElement);
+const saveButton = byId("save", HTMLButtonElement);
+const savedStatus = byId("saved-status", HTMLParagraphElement);
+const savedList = byId("saved-list", HTMLUListElement);
+const notice = byId("notice", HTMLParagraphElement);
+const cancelButton = byId("cancel", HTMLButtonElement);
+const busy = byId("busy", HTMLParagraphElement);
+const listLimit = byId("list-limit", HTMLInputElement);
+const strength = byId("strength", HTMLInputElement);
+const indexInput = byId("index", HTMLInputElement);
+const pickers = byId("pickers", HTMLFieldSetElement);
+const operationButtons = [...document.querySelectorAll<HTMLButtonElement>("button.op")];
+
+/** The controls that change the editor's text, which are off while an operation runs so its result stays about the text it ran on. The saved models' buttons are made when they are listed, so they are looked up each time. */
+function editingControls(): (HTMLSelectElement | HTMLInputElement | HTMLButtonElement)[] {
+  return [exampleSelect, importInput, saveButton, ...savedList.querySelectorAll("button")];
+}
+
+/** Starts the engine worker. The page and the worker share nothing but the messages of `protocol.ts`. */
+const spawnWorker: SpawnWorker = (handlers) => {
+  const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  worker.addEventListener("message", (event: MessageEvent<Response>) => {
+    handlers.respond(event.data);
+  });
+  worker.addEventListener("error", (event) => {
+    handlers.fail(event.message);
+  });
+
+  return {
+    post: (request) => {
+      worker.postMessage(request);
+    },
+    terminate: () => {
+      worker.terminate();
+    },
+  };
+};
+
+const client = new EngineClient(spawnWorker);
+const saved = new SavedModels(() => window.localStorage);
+
+/** The dimensions of the model in the editor, once the engine has validated exactly its current text; `undefined` while it is being checked or is invalid. */
+let dimensions: readonly DimensionSummary[] | undefined;
+let validating = false;
+let operating = false;
+let debounce: ReturnType<typeof setTimeout> | undefined;
+
+// Sending
+
+/** Runs a request on the engine. `undefined` means the user cancelled it. A worker that dies is reported as a failure like any other. */
+async function send(request: Request): Promise<Response | undefined> {
+  try {
+    const running = client.run(request);
+    // The client is busy from here, which is what enables Cancel.
+    refresh();
+
+    return await running;
+  } catch (error) {
+    if (error instanceof CancelledError) return undefined;
+    if (error instanceof Error) return { ok: false, failure: { kind: "error", message: `The engine stopped: ${error.message}` } };
+
+    throw error;
+  }
+}
+
+function refresh(): void {
+  const ready = dimensions !== undefined && !validating && !operating;
+  for (const button of operationButtons) button.disabled = !ready;
+  for (const control of editingControls()) control.disabled = operating;
+  editor.readOnly = operating;
+  cancelButton.disabled = !client.busy;
+}
+
+function showFailure(target: HTMLElement, failure: Failure): void {
+  target.replaceChildren(messageList(describeFailure(failure), "problem"));
+}
+
+/** One operation: the request to send, and how to show what comes back. */
+interface Operation<Op extends Result["op"]> {
+  readonly op: Op;
+  /** What the busy line says while it runs, without the ellipsis. */
+  readonly label: string;
+  readonly request: Request;
+  /** Where its result, or why it failed, is written. */
+  readonly output: HTMLElement;
+  readonly show: (result: Extract<Result, { op: Op }>) => void;
+}
+
+/** Runs one operation, writing what it produces or why it failed into its output. */
+async function operate<Op extends Result["op"]>({ op, label, request, output, show }: Readonly<Operation<Op>>): Promise<void> {
+  setOperating(true, `${label}…`);
+  output.replaceChildren();
+  try {
+    const response = await send(request);
+    if (response === undefined) output.replaceChildren("Cancelled.");
+    else if (!response.ok) showFailure(output, response.failure);
+    else if (isOp(response.result, op)) show(response.result);
+    else throw new Error(`unreachable: ${op} was answered with ${response.result.op}`);
+  } finally {
+    setOperating(false, "");
+  }
+}
+
+function setOperating(value: boolean, label: string): void {
+  operating = value;
+  busy.replaceChildren(label);
+  refresh();
+}
+
+// Validating
+
+function setValidating(value: boolean): void {
+  validating = value;
+  refresh();
+}
+
+/** Checks the editor's text. If the text changes while the engine checks it, the answer is about text no longer there, so it is dropped and the new text is checked. */
+async function validateEditor(): Promise<void> {
+  if (validating) return;
+
+  clearTimeout(debounce);
+  setValidating(true);
+  const text = editor.value;
+  let response: Response | undefined;
+  try {
+    response = await send({ op: "validate", model: text });
+  } finally {
+    setValidating(false);
+  }
+
+  if (editor.value !== text) await validateEditor();
+  else showValidation(response);
+}
+
+function showValidation(response: Response | undefined): void {
+  if (response === undefined) {
+    validation.replaceChildren(textElement("p", "Checking was cancelled. Edit the model to check it again."));
+  } else if (!response.ok) {
+    dimensions = undefined;
+    showFailure(validation, response.failure);
+  } else if (isOp(response.result, "validate")) {
+    dimensions = response.result.dimensions;
+    validation.replaceChildren(textElement("p", `Valid model with ${String(dimensions.length)} dimension${dimensions.length === 1 ? "" : "s"}.`, "valid"));
+    showPickers(dimensions);
+  }
+  refresh();
+}
+
+function editorChanged(): void {
+  dimensions = undefined;
+  validation.replaceChildren(textElement("p", "Checking the model…", "muted"));
+  refresh();
+  clearTimeout(debounce);
+  debounce = setTimeout(() => void validateEditor(), VALIDATE_DEBOUNCE_MS);
+}
+
+/** Replaces the editor's text, as the user typing it would. */
+function setModel(text: string): void {
+  editor.value = text;
+  editorChanged();
+}
+
+// Combination pickers
+
+/** One select per dimension, offering each of its values and unset. The option value is the position in the dimension's values, or `unset`, so values of different JSON types never compare as text. */
+function showPickers(shown: readonly DimensionSummary[]): void {
+  const previous = readPicks();
+  const fields = shown.map((dimension) => {
+    const select = document.createElement("select");
+    select.dataset["dimension"] = dimension.name;
+    select.id = `pick-${dimension.name}`;
+    dimension.values.forEach((value, position) => { select.append(new Option(describeValue(value), String(position))); });
+    select.append(new Option("unset", "unset"));
+    const label = document.createElement("label");
+    label.append(dimension.name, select);
+
+    return { dimension, select, label };
+  });
+  pickers.replaceChildren(textElement("legend", "Pick a value for each dimension"), ...fields.map(({ label }) => label));
+  for (const { dimension, select } of fields) {
+    const before = previous.get(dimension.name);
+    const position = before === undefined ? -1 : dimension.values.findIndex((value) => Object.is(value, before.value));
+    select.value = position >= 0 ? String(position) : "0";
+  }
+}
+
+/** The values currently picked, by dimension. */
+function readPicks(): Map<string, { readonly value: Value }> {
+  const picks = new Map<string, { readonly value: Value }>();
+  for (const select of pickers.querySelectorAll("select")) {
+    const name = select.dataset["dimension"];
+    const dimension = dimensions?.find((candidate) => candidate.name === name);
+    if (dimension === undefined) continue;
+
+    picks.set(dimension.name, { value: select.value === "unset" ? undefined : dimension.values[Number(select.value)] });
+  }
+
+  return picks;
+}
+
+function setPicks(values: Readonly<Record<string, Value>>): void {
+  for (const select of pickers.querySelectorAll("select")) {
+    const dimension = dimensions?.find((candidate) => candidate.name === select.dataset["dimension"]);
+    if (dimension === undefined) continue;
+
+    const value = values[dimension.name];
+    const position = dimension.values.findIndex((candidate) => Object.is(candidate, value));
+    select.value = value === undefined || position < 0 ? "unset" : String(position);
+  }
+}
+
+// Operations
+
+function integerOf(input: HTMLInputElement): number | undefined {
+  const value = input.valueAsNumber;
+
+  return Number.isSafeInteger(value) ? value : undefined;
+}
+
+function dimensionNames(): string[] {
+  return (dimensions ?? []).map((dimension) => dimension.name);
+}
+
+function rowsFor(rows: readonly Row[], caption: string, firstIndex: number | undefined): HTMLElement {
+  return rowsTable(caption, dimensionNames(), rows, firstIndex);
+}
+
+async function countOperation(): Promise<void> {
+  const output = byId("count-result", HTMLDivElement);
+  await operate({
+    op: "count",
+    label: "Counting",
+    request: { op: "count", model: editor.value },
+    output,
+    show: (result) => {
+      output.replaceChildren(textElement("p", `${combinationsPhrase(result.count)} satisfy the model.`));
+    },
+  });
+}
+
+async function listOperation(): Promise<void> {
+  const output = byId("list-result", HTMLDivElement);
+  const limit = integerOf(listLimit);
+  if (limit === undefined || limit < 0 || limit > MAX_LIST_LIMIT) {
+    showFailure(output, { kind: "error", message: `The number to show must be a whole number from 0 to ${String(MAX_LIST_LIMIT)}.` });
+
+    return;
+  }
+
+  await operate({
+    op: "list",
+    label: "Listing",
+    request: { op: "list", model: editor.value, limit },
+    output,
+    show: (result) => {
+      const summary = result.truncated ? `The first ${String(result.rows.length)} combinations. There are more: raise the limit to see them.` : `All ${combinationsPhrase(result.rows.length)}.`;
+      output.replaceChildren(textElement("p", summary), rowsFor(result.rows, "Combinations in enumeration order", 0));
+    },
+  });
+}
+
+async function diagnoseOperation(): Promise<void> {
+  const output = byId("diagnose-result", HTMLDivElement);
+  await operate({
+    op: "diagnose",
+    label: "Looking for dead values",
+    request: { op: "diagnose", model: editor.value },
+    output,
+    show: ({ diagnosis }) => {
+      if (diagnosis.status === "empty") {
+        output.replaceChildren(textElement("p", "No combination satisfies the model, so every value is dead.", "problem"));
+
+        return;
+      }
+
+      const summary = textElement("p", `${combinationsPhrase(diagnosis.count)} satisfy the model.`);
+      if (diagnosis.deadValues.length === 0) {
+        output.replaceChildren(summary, textElement("p", "No dead values: every value of every dimension appears in some combination.", "valid"));
+
+        return;
+      }
+
+      const lines = diagnosis.deadValues.map(({ dimension, value }) => `${dimension} = ${describeValue(value)}`);
+      output.replaceChildren(summary, textElement("p", "These values appear in no combination:"), messageList(lines, "mono"));
+    },
+  });
+}
+
+/** What the page says of a covering array's check. */
+function verificationNote(verification: Verification): HTMLElement {
+  switch (verification.status) {
+    case "covering":
+      return textElement("p", `Checked with isCoveringArray against all ${combinationsPhrase(verification.solutionSet)}: it covers.`, "valid");
+    case "not-covering":
+      return textElement("p", `isCoveringArray rejects this array against all ${combinationsPhrase(verification.solutionSet)}.`, "problem");
+    case "skipped":
+      return textElement("p", `Not checked: the model has more than ${String(verification.limit)} combinations, more than this page enumerates to check an array.`, "muted");
+    default:
+      return unreachable(verification);
+  }
+}
+
+async function coveringOperation(): Promise<void> {
+  const output = byId("covering-result", HTMLDivElement);
+  const chosen = integerOf(strength);
+  if (chosen === undefined || chosen < 1) {
+    showFailure(output, { kind: "error", message: "The strength must be a whole number of at least 1." });
+
+    return;
+  }
+
+  await operate({
+    op: "covering",
+    label: "Building a covering array",
+    request: { op: "covering", model: editor.value, strength: chosen },
+    output,
+    show: (result) => {
+      const summary = textElement("p", `${String(result.rows.length)} row${result.rows.length === 1 ? "" : "s"} cover every combination of ${String(chosen)} dimension values that any valid combination contains.`);
+      output.replaceChildren(summary, verificationNote(result.verification), rowsFor(result.rows, `Covering array of strength ${String(chosen)}`, undefined));
+    },
+  });
+}
+
+async function atOperation(): Promise<void> {
+  const output = byId("combination-result", HTMLDivElement);
+  const index = integerOf(indexInput);
+  if (index === undefined || index < 0) {
+    showFailure(output, { kind: "error", message: "The index must be a whole number of at least 0." });
+
+    return;
+  }
+
+  await operate({
+    op: "at",
+    label: "Finding the combination",
+    request: { op: "at", model: editor.value, index },
+    output,
+    show: ({ row }) => {
+      if (row === undefined) {
+        output.replaceChildren(textElement("p", `There is no combination at index ${String(index)}: the model has fewer combinations.`, "problem"));
+
+        return;
+      }
+
+      setPicks(row.values);
+      output.replaceChildren(textElement("p", `The combination at index ${String(index)}, shown in the pickers above.`), rowsFor([row], "Combination", index));
+    },
+  });
+}
+
+async function explainOperation(): Promise<void> {
+  const output = byId("combination-result", HTMLDivElement);
+  const values = Object.fromEntries([...readPicks()].map(([name, { value }]) => [name, value]));
+
+  await operate({
+    op: "explain",
+    label: "Explaining",
+    request: { op: "explain", model: editor.value, values },
+    output,
+    show: ({ explanation }) => {
+      if (explanation.valid) {
+        indexInput.value = String(explanation.index);
+        output.replaceChildren(textElement("p", `This is a combination of the model, at index ${String(explanation.index)}, with id ${explanation.id}.`, "valid"));
+
+        return;
+      }
+
+      output.replaceChildren(textElement("p", "This is not a combination of the model:", "problem"), messageList(explanation.reasons.map(describeReason), "problem"));
+    },
+  });
+}
+
+// Sharing, saving and files
+
+function selectedIndex(): number | undefined {
+  const index = integerOf(indexInput);
+
+  return index !== undefined && index >= 0 ? index : undefined;
+}
+
+async function copyLinkToClipboard(): Promise<void> {
+  const index = selectedIndex();
+  const state: SharedState = index === undefined ? { model: editor.value } : { model: editor.value, index };
+  const link = await shareUrl(window.location.href, state);
+  linkField.value = link;
+  linkField.hidden = false;
+  try {
+    await navigator.clipboard.writeText(link);
+    linkStatus.textContent = "Link copied. It holds the whole model in its fragment, which is never sent to a server.";
+  } catch {
+    linkField.select();
+    linkStatus.textContent = "The browser would not copy it. The link is selected below: copy it from there.";
+  }
+}
+
+function exportModel(): void {
+  const url = URL.createObjectURL(new Blob([editor.value], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = EXPORT_FILE_NAME;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importModel(): Promise<void> {
+  const file = importInput.files?.[0];
+  // Cleared before the file is read, so choosing the same file again still fires `change`.
+  importInput.value = "";
+  if (file === undefined) return;
+
+  setModel(await file.text());
+}
+
+function renderSaved(): void {
+  const items = saved.list().map(({ name, model }) => {
+    const open = textElement("button", "Open");
+    open.type = "button";
+    open.setAttribute("aria-label", `Open ${name}`);
+    open.addEventListener("click", () => { setModel(model); });
+    const remove = textElement("button", "Delete");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Delete ${name}`);
+    remove.addEventListener("click", () => {
+      savedStatus.textContent = saved.remove(name) ? `Deleted ${name}.` : "The browser would not let the page change its storage.";
+      renderSaved();
+    });
+    const item = document.createElement("li");
+    item.append(textElement("span", name, "name"), open, remove);
+
+    return item;
+  });
+  savedList.replaceChildren(...items);
+  refresh();
+}
+
+function saveModel(): void {
+  const name = saveName.value.trim();
+  if (name === "") {
+    savedStatus.textContent = "Give the model a name to save it under.";
+
+    return;
+  }
+
+  savedStatus.textContent = saved.save(name, editor.value) ? `Saved ${name}.` : "The browser is not letting this page save: its storage is unavailable.";
+  renderSaved();
+}
+
+// Starting
+
+async function loadFromLocation(): Promise<boolean> {
+  try {
+    const restored = await restoreFrom(window.location, async (url, init) => fetch(url, init));
+    if (restored === undefined) return false;
+
+    notice.hidden = true;
+    setModel(restored.model);
+    await validateEditor();
+    if (restored.index !== undefined) {
+      indexInput.value = String(restored.index);
+      await atOperation();
+    }
+
+    return true;
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+
+    notice.textContent = `This link could not be loaded: ${error.message}.`;
+    notice.hidden = false;
+
+    return false;
+  }
+}
+
+function start(): void {
+  for (const [position, example] of EXAMPLES.entries()) exampleSelect.append(new Option(example.name, String(position)));
+  listLimit.value = String(DEFAULT_LIST_LIMIT);
+  listLimit.max = String(MAX_LIST_LIMIT);
+  strength.value = String(DEFAULT_STRENGTH);
+  indexInput.value = "0";
+
+  editor.addEventListener("input", editorChanged);
+  exampleSelect.addEventListener("change", () => {
+    const example = EXAMPLES[Number(exampleSelect.value)];
+    if (example !== undefined) setModel(exampleText(example));
+    exampleSelect.value = "";
+  });
+  copyLink.addEventListener("click", () => void copyLinkToClipboard());
+  exportButton.addEventListener("click", exportModel);
+  importInput.addEventListener("change", () => void importModel());
+  saveButton.addEventListener("click", saveModel);
+  cancelButton.addEventListener("click", () => {
+    client.cancel();
+  });
+  byId("count", HTMLButtonElement).addEventListener("click", () => void countOperation());
+  byId("list", HTMLButtonElement).addEventListener("click", () => void listOperation());
+  byId("diagnose", HTMLButtonElement).addEventListener("click", () => void diagnoseOperation());
+  byId("covering", HTMLButtonElement).addEventListener("click", () => void coveringOperation());
+  byId("at", HTMLButtonElement).addEventListener("click", () => void atOperation());
+  byId("explain", HTMLButtonElement).addEventListener("click", () => void explainOperation());
+  window.addEventListener("hashchange", () => void loadFromLocation());
+
+  renderSaved();
+  void loadFromLocation().then((restored) => {
+    if (restored) return;
+
+    const example = EXAMPLES[STARTING_EXAMPLE];
+    if (example === undefined) throw new Error("unreachable: the starting example is one of the examples");
+
+    setModel(exampleText(example));
+  });
+}
+
+start();
