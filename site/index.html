@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combinatrix Explorer</title>
-    <meta name="description" content="Describe the options of a system and the rules between them, then count, list, explain and cover the valid combinations, in the browser." />
+    <meta name="description" content="Describe the options of a system and the rules between them with a form or as JSON, then count, list, explain and cover the valid combinations, in the browser." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='7' height='7' fill='%232a6fdb'/%3E%3Crect x='9' width='7' height='7' fill='%232a6fdb'/%3E%3Crect y='9' width='7' height='7' fill='%232a6fdb'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./src/style.css" />
     <script type="module" src="./src/main.ts"></script>
@@ -12,7 +12,7 @@
   <body>
     <header class="page-header">
       <h1>combinatrix</h1>
-      <p>Describe the options of a system and the rules between them as JSON, then count, list, explain and cover the combinations that are valid. Everything runs in this page; nothing is sent anywhere.</p>
+      <p>Describe the options of a system and the rules between them with a form or as JSON, then count, list, explain and cover the combinations that are valid. Everything runs in this page; nothing is sent anywhere.</p>
       <p><a href="https://github.com/ExaDev/combinatrix">Source and documentation</a></p>
     </header>
 
@@ -25,10 +25,24 @@
           <label>Load an example
             <select id="example"><option value="">Choose an example</option></select>
           </label>
+          <button type="button" id="empty-model">Start an empty model</button>
         </div>
-        <label for="model">Model as JSON</label>
-        <textarea id="model" rows="16" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
         <div id="validation" role="status"></div>
+        <div id="form-notice" class="notice" hidden>
+          <p id="form-problem" class="problem"></p>
+          <button type="button" id="use-last-valid">Replace the JSON with the last valid model</button>
+        </div>
+        <p id="form-status" class="visually-hidden" role="status"></p>
+        <fieldset id="form-fieldset" class="plain">
+          <legend class="visually-hidden">Model form</legend>
+          <div id="form"></div>
+        </fieldset>
+        <details id="advanced">
+          <summary>Advanced: the model as JSON</summary>
+          <p class="hint">The form and this text are the same model: an edit to either changes the other. If the text stops being valid the form keeps showing the last valid model until it is fixed.</p>
+          <label for="model">Model as JSON</label>
+          <textarea id="model" rows="16" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+        </details>
         <div class="row">
           <button type="button" id="copy-link">Copy link</button>
           <button type="button" id="export">Export</button>

@@ -9,6 +9,8 @@
   --accent-text: #ffffff;
   --problem: #a3261c;
   --problem-bg: #fdecea;
+  --card: #ffffff;
+  --rail: #9aa6ba;
   --ok: #1d6b34;
   --gutter: 16px;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -25,6 +27,8 @@
     --accent-text: #0b1220;
     --problem: #ff9b92;
     --problem-bg: #3a1b19;
+    --card: #12151a;
+    --rail: #5a667a;
     --ok: #7fd49a;
   }
 }
@@ -304,4 +308,210 @@ td,
 
 .id {
   color: var(--muted);
+}
+
+/* The model form */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+fieldset {
+  min-width: 0;
+}
+
+fieldset.plain {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset:disabled {
+  opacity: 0.6;
+}
+
+details {
+  margin: 16px 0;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.notice {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--problem-bg);
+}
+
+.notice .problem {
+  margin: 0 0 8px;
+  padding: 0;
+  background: none;
+}
+
+.form-section {
+  margin: 24px 0 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.form-section h3 {
+  font-size: 1.1rem;
+}
+
+.cards {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.card-head,
+.optional-head,
+.node-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.card-head {
+  justify-content: space-between;
+}
+
+.card-head h4 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+.grid label {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.grid input,
+.grid select {
+  width: 100%;
+}
+
+.item-buttons {
+  display: inline-flex;
+  gap: 4px;
+}
+
+button.small {
+  padding: 4px 10px;
+  border-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.875rem;
+}
+
+button.small:disabled {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.values {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.value-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 4px 0;
+}
+
+.value-row input[type="text"] {
+  min-width: 0;
+  width: 12rem;
+}
+
+.field-with-problem {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.field-problem {
+  color: var(--problem);
+  font-size: 0.8rem;
+}
+
+.field-problem:empty {
+  display: none;
+}
+
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--problem);
+}
+
+.optional {
+  margin: 12px 0 0;
+}
+
+.optional-head {
+  margin: 0 0 4px;
+}
+
+.node {
+  min-width: 0;
+  margin: 6px 0;
+}
+
+.node-children {
+  margin: 4px 0 0 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--rail);
+}
+
+.node-op {
+  margin: 4px 0;
+}
+
+.node-title {
+  font-weight: 600;
+}
+
+.node select,
+.node input[type="text"] {
+  max-width: 100%;
+}
+
+.raw-json {
+  width: 100%;
+  font-size: 0.8rem;
+}
+
+fieldset legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
