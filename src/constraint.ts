@@ -1,5 +1,4 @@
 import type { ConstraintDefect, Refusal } from "./checks";
-import type { Truth } from "./condition";
 import type { Dimension, NameOf, Read, ReadName, ReadValues, TupleOf } from "./dimension";
 import { readNames, readsHold } from "./dimension";
 import type { PartialAssignment, Value, ValueRecord } from "./value";
@@ -8,7 +7,7 @@ import type { PartialAssignment, Value, ValueRecord } from "./value";
 export type Verdict = "valid" | "invalid" | "unknown";
 
 /**
- * The three-valued constraint contract. Any constraint language plugs into this library by implementing it; the declarative rules and `predicate` are two implementations.
+ * The three-valued constraint contract. Any constraint language plugs into this library by implementing it; the declarative rules, whose conditions are trilean predicate trees, and `predicate` are two implementations.
  *
  * The contract an implementation keeps:
  * - `dependencies` names every dimension `evaluate` reads, and nothing it does not read.
@@ -101,11 +100,4 @@ function hasKeys<R extends string>(values: ValueRecord, keys: readonly R[]): val
 /** Whether every dimension the `reads` list gives as itself can hold the value under its name, which with the keys `namedPredicate` guarantees is what `ReadValues` states. */
 function holdsReads<Rs extends readonly Read[]>(values: ValueRecord, reads: Rs): values is ValueRecord & ReadValues<Rs> {
   return readsHold(reads, values);
-}
-
-/** The verdict a three-valued truth gives a constraint that requires it to hold. */
-export function verdictOf(truth: Truth): Verdict {
-  if (truth === undefined) return "unknown";
-
-  return truth ? "valid" : "invalid";
 }

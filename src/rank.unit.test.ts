@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_FREE_DIMENSIONS, Random, randomModel, seeds, VALUE_POOL } from "../test/random-model";
 import type { Combination, Model, Value } from "./index";
-import { at, choice, combinations, computed, count, defineModel, explainData, firstValid, indexOf, indexOfData, isNonEmpty, predicate, samples } from "./index";
+import { at, choice, combinations, computed, count, defineModel, explainData, firstValid, indexOf, indexOfData, is, isNonEmpty, isSet, predicate, samples } from "./index";
 import type { CompletionCount } from "./search";
 import { exactCompletions, rankSearch, unrankSearch } from "./search";
 import { valueKey } from "./value";
@@ -217,11 +217,11 @@ describe("derived, conditionally active and unset dimensions", () => {
     dimensions: [
       choice("os", ["linux", "windows"]),
       choice("compress", [undefined, true]),
-      firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: { set: "compress" } }),
-      choice("level", ["fast", "best"], { activeWhen: { set: "compress" } }),
+      firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: isSet("compress") }),
+      choice("level", ["fast", "best"], { activeWhen: isSet("compress") }),
       computed("label", { reads: ["os", "codec"], compute: (values) => `${String(values.os)}-${String(values.codec ?? "none")}` }),
     ],
-    rules: [{ excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
+    rules: [{ excludes: is("codec", "zstd"), when: is("os", "windows") }],
   });
   const expected = [...combinations(model)];
 

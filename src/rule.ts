@@ -1,8 +1,7 @@
-import type { Condition, Truth, TypedCondition } from "./condition";
-import { conditionDependencies, conjunction, evaluateCondition, implication, negation } from "./condition";
-import type { Constraint } from "./constraint";
-import { verdictOf } from "./constraint";
-import type { PartialAssignment, Value } from "./value";
+import { and, implies, not } from "trilean";
+
+import type { Condition, TypedCondition } from "./condition";
+import type { ValueRecord } from "./value";
 
 /** The guards and label every rule form shares, over conditions of type `C`. */
 interface RuleScope<C> {
@@ -18,34 +17,18 @@ interface RuleScope<C> {
 type RuleOver<C> = (RuleScope<C> & { readonly requires: C }) | (RuleScope<C> & { readonly excludes: C }) | (RuleScope<C> & { readonly implies: readonly [C, C] });
 
 /**
- * A declarative constraint, as plain JSON-shaped data with any string as a dimension name: the form a rule read from JSON has. Exactly one of the three forms, each optionally scoped by `when` and `unless`:
+ * A declarative constraint, as plain JSON-shaped data whose conditions are trilean predicate trees with any string as a dimension name: the form a rule read from JSON has. Exactly one of the three forms, each optionally scoped by `when` and `unless`:
  *
  * - `{ requires: condition }`: every combination in scope satisfies the condition.
  * - `{ excludes: condition }`: no combination in scope satisfies the condition.
  * - `{ implies: [antecedent, consequent] }`: every combination in scope that satisfies the antecedent satisfies the consequent.
  *
- * `isRule` checks data against this shape and `parseRules` checks it against a model's dimensions too. A rule written in code is checked at compile time as a `TypedRule` instead.
+ * The rule states the single tree `ruleTree` builds from it. `isRule` checks data against this shape and `parseRules` checks it against a model's dimensions too. A rule whose conditions come from the builders is checked at compile time as a `TypedRule` instead.
  */
 export type Rule = RuleOver<Condition>;
 
-/** A rule whose every condition is a `TypedCondition<T>`, so its dimension names and the values it compares are checked against the dimensions at compile time. `T` is the type of one combination. A typed rule is a `Rule`. */
-export type TypedRule<T extends Readonly<Record<string, Value>>> = RuleOver<TypedCondition<T>>;
-
-/** Whether a rule holds, with Kleene logic: `in scope implies body`, where the scope is `when and not unless`. */
-export function evaluateRule(rule: Rule, assignment: PartialAssignment): Truth {
-  const scope = conjunction([rule.when === undefined ? true : evaluateCondition(rule.when, assignment), rule.unless === undefined ? true : negation(evaluateCondition(rule.unless, assignment))]);
-
-  return implication(scope, evaluateBody(rule, assignment));
-}
-
-function evaluateBody(rule: Rule, assignment: PartialAssignment): Truth {
-  if ("requires" in rule) return evaluateCondition(rule.requires, assignment);
-  if ("excludes" in rule) return negation(evaluateCondition(rule.excludes, assignment));
-
-  const [antecedent, consequent] = rule.implies;
-
-  return implication(evaluateCondition(antecedent, assignment), evaluateCondition(consequent, assignment));
-}
+/** A rule whose every condition is a `TypedCondition<T>`, so the dimension names and the values its builders compare are checked against the dimensions at compile time. `T` is the type of one combination. A typed rule is a `Rule`. */
+export type TypedRule<T extends ValueRecord> = RuleOver<TypedCondition<T>>;
 
 /** Every condition a rule contains, scope first. */
 export function ruleConditions(rule: Rule): Condition[] {
@@ -56,10 +39,22 @@ export function ruleConditions(rule: Rule): Condition[] {
   return [...scope, ...rule.implies];
 }
 
-/** The constraint a rule states, through the public contract. Its dependencies are every dimension the rule mentions. */
-export function ruleConstraint(rule: Rule): Constraint {
-  const dependencies = [...new Set(ruleConditions(rule).flatMap(conditionDependencies))];
-  const evaluate = (assignment: PartialAssignment) => verdictOf(evaluateRule(rule, assignment));
+/**
+ * The one trilean predicate tree a rule states: `scope implies body`, where the scope is `when and not unless` and the body is the condition `requires` names, the negation of the one `excludes` names, or `antecedent implies consequent`. A rule with no scope is its body alone. Every part is a trilean connective, so the tree is evaluated, three-valued, wherever trilean is, and mentions the dimensions in the order `ruleConditions` lists them.
+ */
+export function ruleTree(rule: Rule): Condition {
+  const scopes = [...(rule.when === undefined ? [] : [rule.when]), ...(rule.unless === undefined ? [] : [not(rule.unless)])];
+  const [first, second] = scopes;
+  const body = bodyTree(rule);
+  if (first === undefined) return body;
 
-  return rule.name === undefined ? { dependencies, evaluate } : { dependencies, evaluate, name: rule.name };
+  return implies(second === undefined ? first : and(first, second), body);
+}
+
+/** The tree of a rule's body, before its scope. */
+function bodyTree(rule: Rule): Condition {
+  if ("requires" in rule) return rule.requires;
+  if ("excludes" in rule) return not(rule.excludes);
+
+  return implies(...rule.implies);
 }

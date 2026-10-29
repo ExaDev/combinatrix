@@ -1,9 +1,10 @@
+import { ExpressionNodeSchema, JsonValueSchema, PredicateNodeSchema } from "trilean";
 import { z } from "zod";
 
 import pkg from "../package.json";
 
 /**
- * The Zod definitions of the library's serialisable data, from which `buildJsonSchema` derives the published JSON Schema. Zod is a development dependency used only for that derivation: the package validates at runtime with the hand-written guards in `src/guards.ts`, and `scripts/json-schema.unit.test.ts` proves the two accept and refuse the same data. `scripts/json-schema.types.unit.test.ts` proves at compile time that what each schema infers and the library type it describes accept the same data.
+ * The Zod definitions of the library's serialisable data, from which `buildJsonSchema` derives the published JSON Schema. A condition is trilean's `PredicateNodeSchema` itself, so the schema states trilean trees exactly as trilean does. Zod is otherwise a development dependency used only for that derivation (trilean depends on it at runtime): the package validates at runtime with the guards in `src/guards.ts` and `src/shape.ts`, and `scripts/json-schema.unit.test.ts` proves the two accept and refuse the same data. `scripts/json-schema.types.unit.test.ts` proves at compile time that what each schema infers and the library type it describes accept the same data.
  *
  * Uniqueness of a domain's values (`uniqueItems`) is stated as schema metadata because Zod has no uniqueness constraint; the JSON Schema is the artefact validated against, never a Zod parse.
  */
@@ -14,39 +15,15 @@ export const ScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null
   description: "A value a dimension can take that survives a JSON round trip unchanged: a string, a number, a boolean or null.",
 });
 
-/** A condition over dimension values: one of seven forms, each an object with exactly one key. The combinators refer back to the schema through getters, which Zod resolves lazily and TypeScript infers without an annotation, so `z.infer` of it is the type the schema really describes. */
-export const ConditionSchema = z
-  .union([
-    z.strictObject({ is: z.tuple([z.string(), ScalarSchema]) }).describe("The dimension, named first, is set to the value, given second."),
-    z.strictObject({ in: z.tuple([z.string(), z.array(ScalarSchema)]) }).describe("The dimension, named first, is set to one of the values, given second as a list."),
-    z.strictObject({ unset: z.string() }).describe("The named dimension is unset."),
-    z.strictObject({ set: z.string() }).describe("The named dimension is set to any value."),
-    z
-      .strictObject({
-        get all() {
-          return z.array(ConditionSchema);
-        },
-      })
-      .describe("Every condition in the list holds. An empty list holds."),
-    z
-      .strictObject({
-        get any() {
-          return z.array(ConditionSchema);
-        },
-      })
-      .describe("At least one condition in the list holds. An empty list does not hold."),
-    z
-      .strictObject({
-        get not() {
-          return ConditionSchema;
-        },
-      })
-      .describe("The condition does not hold."),
-  ])
-  .meta({
-    id: "Condition",
-    description: "A condition over dimension values, evaluated with Kleene's strong three-valued logic: a test on a dimension not yet assigned is unknown. Dimension names and values are checked against a model's dimensions by the model, not by this schema.",
-  });
+/**
+ * trilean's own schemas, given the names its published schema gives them so that the document's `$defs` reads as trilean's does. They are registered in Zod's global registry, which `z.toJSONSchema` reads, because trilean declares them without an id; registering is a side effect of loading this module, which only the build and the tests do.
+ */
+z.globalRegistry.add(PredicateNodeSchema, { id: "PredicateNode", description: "A trilean predicate tree: a condition over dimension values, whose `reference` nodes name dimensions, evaluated by trilean with Kleene's strong three-valued logic: a dimension not yet assigned is not yet known, and an unset one is absent. Dimension names and values, and node kinds an assignment of dimensions cannot back, are checked against a model's dimensions by the model, not by this schema." });
+z.globalRegistry.add(ExpressionNodeSchema, { id: "ExpressionNode", description: "A trilean expression tree: a value a predicate compares, such as a `reference` to a dimension or a literal." });
+z.globalRegistry.add(JsonValueSchema, { id: "JsonValue", description: "Any JSON value: what trilean takes as a reference key, which names a dimension when it is a string." });
+
+/** A condition: trilean's predicate tree, under the name trilean gives it. */
+export const ConditionSchema = PredicateNodeSchema;
 
 /** The guards and label every rule form shares. */
 const ruleScope = {
@@ -67,7 +44,7 @@ export const RuleSchema = z
   ])
   .meta({
     id: "Rule",
-    description: "A declarative constraint over dimension values: exactly one of `requires`, `excludes` and `implies`, with optional `when`, `unless` and `name` and no other key.",
+    description: "A declarative constraint over dimension values: exactly one of `requires`, `excludes` and `implies`, with optional `when`, `unless` and `name` and no other key. Each condition is a trilean predicate tree, and the rule states the one tree `scope implies body`.",
   });
 
 /** A list of rules: the form a rules file has. */
@@ -116,7 +93,7 @@ export const ModelSchema = z
 const DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 
 const ROOT_DESCRIPTION =
-  "The serialisable data of combinatrix: a model (choice and first-valid dimensions with literal values, activity conditions and rules), a list of rules, a single rule, or a single condition. Computed dimensions, sampled domains, predicates and other constraints given through the constraint contract are functions, not data, and are out of scope. A value that is unset is not a JSON value: a dimension is unset only through `activeWhen`.";
+  "The serialisable data of combinatrix: a model (choice and first-valid dimensions with literal values, activity conditions and rules), a list of rules, a single rule, or a single condition, which is a trilean predicate tree. Computed dimensions, sampled domains, predicates and other constraints given through the constraint contract are functions, not data, and are out of scope. A value that is unset is not a JSON value: a dimension is unset only through `activeWhen`.";
 
 /** The published JSON Schema document, a draft 2020-12 schema whose `$id` names the package version it ships in. The `$id` is version-pinned, never `latest`, so a reference to it keeps meaning the schema it was written against. */
 export function buildJsonSchema(version: string): z.core.JSONSchema.JSONSchema {

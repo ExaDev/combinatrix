@@ -1,14 +1,14 @@
 // examples/04-derived.ts
-import { choice, collect, defineModel, firstValid } from "combinatrix";
+import { choice, collect, defineModel, firstValid, is, isSet } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
     choice("os", ["linux", "windows"]),
     choice("compress", [undefined, true]),
     // The preferred codec first; the one chosen is the first that no rule rejects.
-    firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: { set: "compress" } }),
+    firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: isSet("compress") }),
   ],
-  rules: [{ name: "windows has no zstd", excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
+  rules: [{ name: "windows has no zstd", excludes: is("codec", "zstd"), when: is("os", "windows") }],
 });
 
 for (const { values } of collect(model)) console.log(values);

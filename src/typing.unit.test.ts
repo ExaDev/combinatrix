@@ -1,18 +1,18 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { AbortSignalLike, CombinationOf, Condition, Constraint, DataReason, DeadValue, Dimension, LimitBound, PartialAssignment, Reason, Strategy, StrategyContext, TupleOf, TypedCondition, TypedRule, Value } from "./index";
-import { choice, collect, computed, count, defineModel, diagnose, explain, explainData, firstValid, isNonEmpty, LimitExceededError, ModelError, predicate, sampled, StrategyError } from "./index";
+import { allOf, anyOf, choice, collect, computed, count, defineModel, diagnose, explain, explainData, firstValid, is, isNonEmpty, isSet, isUnset, LimitExceededError, ModelError, not, oneOf, predicate, sampled, StrategyError } from "./index";
 
 /**
- * Compile-time guarantees. Each `@ts-expect-error` line is load-bearing: `pnpm typecheck` type-checks this file, and a directive whose line compiles is itself an error (TS2578), so a guarantee that stopped holding fails the typecheck. Each refused definition is also run, to show `defineModel` still refuses it at runtime, where data that bypassed the types arrives.
+ * Compile-time guarantees. Each `@ts-expect-error` line is load-bearing: `pnpm typecheck` type-checks this file, and a directive whose line compiles is itself an error (TS2578), so a guarantee that stopped holding fails the typecheck. Each refused definition is also run, to show `defineModel` still refuses it at runtime, where data that bypassed the types arrives; the one exception is `isUnset` of a dimension that is never unset, whose tree is also `not(isSet(d))` and is simply false there.
  */
 const dimensions = [
   choice("os", ["linux", "macos"]),
   choice("arch", ["x64", "arm64"]),
   // Unset only where it is inactive.
-  choice("libc", ["glibc", "musl"], { activeWhen: { is: ["os", "linux"] } }),
+  choice("libc", ["glibc", "musl"], { activeWhen: is("os", "linux") }),
   // Unset only where it is inactive, and derived.
-  computed("triple", { reads: ["os", "arch"], compute: ({ os, arch }) => `${String(os)}-${String(arch)}`, activeWhen: { set: "arch" } }),
+  computed("triple", { reads: ["os", "arch"], compute: ({ os, arch }) => `${String(os)}-${String(arch)}`, activeWhen: isSet("arch") }),
   // Unset as a derived value. Last, since a rule on a first-valid dimension may mention only dimensions declared before it.
   firstValid("channel", [undefined, "stable", "beta"]),
 ] as const;
@@ -37,47 +37,49 @@ describe("the inferred combination type", () => {
 describe("typed rules", () => {
   it("accept every form and combinator written against the dimensions", () => {
     const rules = [
-        { requires: { in: ["arch", ["x64"]] }, when: { is: ["os", "macos"] }, unless: { unset: "libc" }, name: "macos on x64" },
-        { excludes: { all: [{ is: ["libc", "musl"] }, { not: { any: [{ set: "channel" }, { unset: "triple" }] } }] } },
-      { implies: [{ is: ["channel", "beta"] }, { in: ["os", ["linux"]] }] },
+        { requires: oneOf("arch", ["x64"]), when: is("os", "macos"), unless: isUnset("libc"), name: "macos on x64" },
+        { excludes: allOf(is("libc", "musl"), not(anyOf(isSet("channel"), isUnset("triple")))) },
+      { implies: [is("channel", "beta"), oneOf("os", ["linux"])] },
     ] satisfies TypedRule<Combination>[];
     expect(defineModel({ dimensions, rules }).rules).toEqual(rules);
   });
 
   it("refuse an unknown dimension name, at compile time and at runtime", () => {
     // @ts-expect-error "kernel" is not a dimension
-    expect(() => defineModel({ dimensions, rules: [{ requires: { set: "kernel" } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ requires: isSet("kernel") }] })).toThrow(ModelError);
   });
 
   it("refuse a value outside a dimension's domain, in every condition form and position", () => {
     // @ts-expect-error "windows" is not a value of os
-    expect(() => defineModel({ dimensions, rules: [{ requires: { in: ["os", ["windows"]] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ requires: oneOf("os", ["windows"]) }] })).toThrow(ModelError);
     // @ts-expect-error "riscv" is not a value of arch
-    expect(() => defineModel({ dimensions, rules: [{ requires: { set: "os" }, when: { is: ["arch", "riscv"] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ requires: isSet("os"), when: is("arch", "riscv") }] })).toThrow(ModelError);
     // @ts-expect-error a value nested in all, any and not is checked too
-    expect(() => defineModel({ dimensions, rules: [{ excludes: { all: [{ any: [{ not: { is: ["libc", "uclibc"] } }] }] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ excludes: allOf(anyOf(not(is("libc", "uclibc")))) }] })).toThrow(ModelError);
     // @ts-expect-error unless and implies are checked too
-    expect(() => defineModel({ dimensions, rules: [{ implies: [{ set: "os" }, { is: ["channel", "nightly"] }], unless: { set: "arch" } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ implies: [isSet("os"), is("channel", "nightly")], unless: isSet("arch") }] })).toThrow(ModelError);
   });
 
   it("correlate the values with the dimension named before them", () => {
     // @ts-expect-error "x64" is a value of arch, not of os
-    expect(() => defineModel({ dimensions, rules: [{ requires: { is: ["os", "x64"] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ requires: is("os", "x64") }] })).toThrow(ModelError);
     // @ts-expect-error one value of the list belongs to another dimension
-    expect(() => defineModel({ dimensions, rules: [{ requires: { in: ["arch", ["x64", "linux"]] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions, rules: [{ requires: oneOf("arch", ["x64", "linux"]) }] })).toThrow(ModelError);
   });
 
   it("allow a test for unset exactly where the dimension can be unset", () => {
-    const unsettable: TypedCondition<Combination>[] = [{ unset: "libc" }, { unset: "channel" }, { unset: "triple" }];
+    const unsettable: TypedCondition<Combination>[] = [isUnset("libc"), isUnset("channel"), isUnset("triple")];
     expect(defineModel({ dimensions, rules: unsettable.map((condition) => ({ excludes: condition })) }).rules).toEqual(unsettable.map((condition) => ({ excludes: condition })));
     // @ts-expect-error os is never unset
-    expect(() => defineModel({ dimensions, rules: [{ excludes: { unset: "os" } }] })).toThrow(ModelError);
+    const neverUnset = defineModel({ dimensions, rules: [{ requires: isUnset("os") }] });
+    // At runtime the tree is not(isSet("os")), which is a legitimate tree, false wherever os is set: so the model is empty rather than refused.
+    expect(count(neverUnset)).toBe(0);
   });
 
   it("type a rule written apart from the model", () => {
-    const rule: TypedRule<Combination> = { requires: { is: ["os", "linux"] }, when: { is: ["libc", "musl"] } };
+    const rule: TypedRule<Combination> = { requires: is("os", "linux"), when: is("libc", "musl") };
     // @ts-expect-error "bsd" is not a value of os
-    const wrong: TypedRule<Combination> = { requires: { is: ["os", "bsd"] } };
+    const wrong: TypedRule<Combination> = { requires: is("os", "bsd") };
     expect(defineModel({ dimensions, rules: [rule] }).rules).toEqual([rule]);
     expect(() => defineModel({ dimensions, rules: [wrong] })).toThrow(ModelError);
   });
@@ -106,13 +108,23 @@ describe("the dimensions' names and order", () => {
 
   it("refuse an activity condition on a later or unknown dimension, or comparing with a value it can never take", () => {
     // @ts-expect-error os is declared after libc
-    expect(() => defineModel({ dimensions: [choice("libc", ["glibc"], { activeWhen: { is: ["os", "linux"] } }), choice("os", ["linux"])] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions: [choice("libc", ["glibc"], { activeWhen: is("os", "linux") }), choice("os", ["linux"])] })).toThrow(ModelError);
     // @ts-expect-error kernel is not a dimension
-    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: { not: { set: "kernel" } } })] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: not(isSet("kernel")) })] })).toThrow(ModelError);
     // @ts-expect-error "bsd" is not a value of os
-    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), firstValid("libc", ["glibc"], { activeWhen: { any: [{ is: ["os", "bsd"] }] } })] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), firstValid("libc", ["glibc"], { activeWhen: anyOf(is("os", "bsd")) })] })).toThrow(ModelError);
     // @ts-expect-error os is never unset
-    expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: { unset: "os" } })] })).toThrow(ModelError);
+    expect(collect(defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: isUnset("os") })] })).map(({ values }) => values)).toEqual([{ os: "linux", libc: undefined }]);
+  });
+
+  it("refuse a condition reading a dimension that can take null, or comparing values of a dimension of mixed kinds, which trilean cannot decide", () => {
+    const nullable = [choice("n", [null, 1])] as const;
+    // @ts-expect-error n can take null, which has no trilean value
+    expect(() => defineModel({ dimensions: nullable, rules: [{ requires: isSet("n") }] })).toThrow(ModelError);
+    const mixed = [choice<"m", "a" | 1>("m", ["a", 1])] as const;
+    // @ts-expect-error m takes text and numbers, which trilean does not compare with each other
+    expect(() => defineModel({ dimensions: mixed, rules: [{ requires: is("m", "a") }] })).toThrow(ModelError);
+    expect(count(defineModel({ dimensions: mixed, rules: [{ requires: isSet("m") }] }))).toBe(mixed[0].values.length);
   });
 
   it("refuse a computed dimension reading a later or unknown dimension", () => {
@@ -124,9 +136,9 @@ describe("the dimensions' names and order", () => {
 
   it("refuse a rule or predicate on a first-valid dimension that mentions a dimension declared after it", () => {
     const ordered = [choice("os", ["linux", "macos"]), firstValid("channel", ["stable", "beta"]), choice("arch", ["x64", "arm64"])] as const;
-    expect(defineModel({ dimensions: ordered, rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["os", "macos"] } }] }).rules).toHaveLength(1);
+    expect(defineModel({ dimensions: ordered, rules: [{ requires: is("channel", "beta"), when: is("os", "macos") }] }).rules).toHaveLength(1);
     // @ts-expect-error arch is declared after the first-valid channel
-    expect(() => defineModel({ dimensions: ordered, rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["arch", "arm64"] } }] })).toThrow(ModelError);
+    expect(() => defineModel({ dimensions: ordered, rules: [{ requires: is("channel", "beta"), when: is("arch", "arm64") }] })).toThrow(ModelError);
     // @ts-expect-error the same for a predicate's reads
     expect(() => defineModel({ dimensions: ordered, constraints: [predicate({ reads: ["channel", "arch"], test: () => true })] })).toThrow(ModelError);
   });
@@ -141,7 +153,7 @@ describe("the dimensions' names and order", () => {
   it("leave a dimension whose name or condition is not known at compile time to the runtime", () => {
     // A name assembled at runtime is typed string, so the compiler cannot see the duplicate.
     const name = ["o", "s"].join("");
-    const activity: Condition = { is: ["os", "bsd"] };
+    const activity: Condition = is("os", "bsd");
     expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice(name, ["macos"])] })).toThrow(ModelError);
     expect(() => defineModel({ dimensions: [choice("os", ["linux"]), choice("libc", ["glibc"], { activeWhen: activity })] })).toThrow(ModelError);
   });
@@ -192,8 +204,8 @@ describe("a predicate bound to the model", () => {
 
 describe("the reasons explain gives", () => {
   const model = defineModel({
-    dimensions: [choice("os", ["linux", "macos"]), choice("libc", ["glibc", "musl"], { activeWhen: { is: ["os", "linux"] } }), firstValid("channel", ["stable", "beta"])],
-    rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["libc", "musl"] } }],
+    dimensions: [choice("os", ["linux", "macos"]), choice("libc", ["glibc", "musl"], { activeWhen: is("os", "linux") }), firstValid("channel", ["stable", "beta"])],
+    rules: [{ requires: is("channel", "beta"), when: is("libc", "musl") }],
   });
   type Of = CombinationOf<typeof model>;
 
@@ -241,7 +253,7 @@ describe("the reasons explain gives", () => {
 
 describe("the dead values diagnose lists", () => {
   it("are keyed by dimension, so testing the dimension narrows the value", () => {
-    const model = defineModel({ dimensions: [choice("os", ["linux", "macos"]), choice("arch", ["x64", "arm64", "riscv64"])], rules: [{ excludes: { is: ["arch", "riscv64"] } }] });
+    const model = defineModel({ dimensions: [choice("os", ["linux", "macos"]), choice("arch", ["x64", "arm64", "riscv64"])], rules: [{ excludes: is("arch", "riscv64") }] });
     const diagnosis = diagnose(model);
     if (diagnosis.status === "empty") throw new Error("the model is satisfiable");
     expectTypeOf(diagnosis.deadValues).toEqualTypeOf<readonly DeadValue<CombinationOf<typeof model>>[]>();

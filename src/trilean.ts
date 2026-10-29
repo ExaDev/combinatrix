@@ -1,38 +1,15 @@
-import type { Constraint, Verdict } from "./constraint";
-import type { Dimension } from "./dimension";
-import type { PartialAssignment, Scalar } from "./value";
-import type {
-  ComputedValue,
-  ExpressionNode,
-  FunctionRegistry,
-  PredicateNode,
-  ReferenceNode,
-  Resolution,
-  SyncResolvers,
-} from "trilean";
-import {
-  PredicateNodeSchema,
-  createSyncEvaluator,
-  emptyFunctionRegistry,
-} from "trilean";
+import type { ComputedValue, ExpressionNode, FunctionRegistry, PredicateNode, ReferenceNode, Resolution, SyncResolvers } from "trilean";
+import { createSyncEvaluator, emptyFunctionRegistry, PredicateNodeSchema } from "trilean";
 // The released trilean exports its default budgets from this module only; its package entry point re-exports them from the next release on.
 import { DEFAULT_MAX_EVALUATION_NODES, DEFAULT_MAX_NESTING_DEPTH } from "trilean/evaluator-budget";
-import {
-  EvaluationBudgetError,
-  PredicateTreeError,
-  UndecidedConstraintError,
-  UnmappableValueError,
-} from "./errors";
 
-/** Options for `trileanConstraint`. */
-export interface TrileanConstraintOptions {
-  /** The dimensions of the model the constraint will be given to. Every reference in the tree must name one of them. */
-  readonly dimensions: readonly Dimension[];
-  /** A label for diagnostics, such as combinatrix's `explain` report and this package's errors. */
-  readonly name?: string;
-  /** The functions a `call` node may name, bound into the evaluator as trilean's `createSyncEvaluator` binds them. Defaults to trilean's empty registry, so a tree with a `call` node needs one. Every name the tree calls must be one of the registry's own keys. */
-  readonly functions?: FunctionRegistry;
-}
+import type { Condition } from "./condition";
+import type { Constraint, Verdict } from "./constraint";
+import type { Dimension } from "./dimension";
+import { possibleKeys } from "./dimension";
+import { UndecidedConstraintError, UnmappableValueError } from "./errors";
+import type { PartialAssignment, Scalar, Value } from "./value";
+import { describeValue, isScalar, valueKey } from "./value";
 
 /** One node still to visit in the walk over a tree, with where it is and how deep. */
 interface PendingNode {
@@ -42,14 +19,17 @@ interface PendingNode {
 }
 
 /** What a walk over a tree finds: its defects, the dimensions its references name in the order first met, its node count and its deepest node's depth. */
-interface TreeSurvey {
+export interface TreeSurvey {
   readonly issues: string[];
   readonly references: string[];
   nodes: number;
   deepest: number;
 }
 
-/** The node kinds the adapter refuses: each needs a resolver an assignment of dimensions cannot back. */
+/** A check the walk runs on every node besides its own, returning the node's defects. */
+type NodeCheck = (node: PredicateNode | ExpressionNode, path: string) => readonly string[];
+
+/** The node kinds the engine refuses: each needs a resolver an assignment of dimensions cannot back. */
 type RefusedKind =
   | "some"
   | "every"
@@ -69,84 +49,37 @@ const REFUSED_KINDS: Readonly<Record<RefusedKind, string>> = {
   lookup:
     "it reads a table, and an assignment of dimensions resolves no tables",
   delegate:
-    "it defers to an external system, and the adapter supplies no delegate resolver",
+    "it defers to an external system, and the engine supplies no delegate resolver",
   treeReference:
-    "it resolves another tree by key, and the adapter supplies no tree resolver",
+    "it resolves another tree by key, and the engine supplies no tree resolver",
 };
 
 /**
- * Turns a trilean predicate tree, given as plain JSON, into a combinatrix `Constraint` over the given dimensions.
- *
- * The tree is validated with trilean's `PredicateNodeSchema` and then walked, and `PredicateTreeError` lists every defect: a node kind the adapter cannot resolve (`some`, `every`, `fold`, `accumulator`, `lookup`, `delegate`, `treeReference`), a `reference` whose key is not a string or names no dimension, a `reference` carrying a `unit` (dimension values carry none), a `call` to a function the registry does not hold, and a referenced choice or first-valid dimension that can take `null`, which has no trilean value. The kinds accepted are listed explicitly, so a node kind trilean adds later is refused until the adapter is taught it. `EvaluationBudgetError` is thrown when the tree's node count or depth exceeds trilean's default evaluation budget, which is checked here because an accepted tree visits each node at most once per evaluation.
- *
- * `dependencies` are the dimensions the tree's references name, in the order the tree first mentions them. `evaluate` runs trilean's synchronous evaluator with each reference resolved from the assignment: a dimension assigned a string, number or boolean resolves to that text, number or boolean; one assigned unset resolves as known absent (`{ found: false }`, so `exists` is definitely false); one not yet assigned resolves as not yet known (`{ found: false, notYetKnown: true }`, so `exists` and everything reading it stays indeterminate until it is assigned, which is what keeps a definite answer the answer on every completion). A definite true is `valid` and a definite false `invalid`. An indeterminate result is `unknown` while some dependency is unassigned, and throws `UndecidedConstraintError`, carrying trilean's reason, once every dependency is assigned, since the contract forbids `unknown` there. A computed dimension that produces `null` throws `UnmappableValueError` when it is read.
+ * Every way a value fails to be a trilean predicate tree: what trilean's `PredicateNodeSchema` refuses, and a key the schema does not define, which the schema's own parse would drop rather than refuse. Each names where in the tree it is (`$` is the root). Empty exactly when the value is a tree, so it is the runtime check behind `isCondition`, and it agrees with the published JSON Schema, which refuses an undefined key too.
  */
-export function trileanConstraint(
-  tree: unknown,
-  options: TrileanConstraintOptions,
-): Constraint {
-  const parsed = PredicateNodeSchema.safeParse(tree);
-  if (!parsed.success) {
-    throw new PredicateTreeError(
-      parsed.error.issues.map(
-        (issue) =>
-          `${pathText(issue.path)}: ${issue.message} (not a trilean predicate tree)`,
-      ),
-    );
-  }
-  const node = parsed.data;
-  const functions = options.functions ?? emptyFunctionRegistry;
-  const byName = new Map(
-    options.dimensions.map((dimension) => [dimension.name, dimension]),
-  );
-  const survey = surveyTree(node, byName, functions);
-  if (survey.issues.length > 0) throw new PredicateTreeError(survey.issues);
-  if (survey.nodes > DEFAULT_MAX_EVALUATION_NODES) {
-    throw new EvaluationBudgetError(
-      "nodes",
-      survey.nodes,
-      DEFAULT_MAX_EVALUATION_NODES,
-    );
-  }
-  if (survey.deepest >= DEFAULT_MAX_NESTING_DEPTH) {
-    throw new EvaluationBudgetError(
-      "depth",
-      survey.deepest,
-      DEFAULT_MAX_NESTING_DEPTH,
-    );
-  }
+export function treeShapeIssues(value: unknown): string[] {
+  const parsed = PredicateNodeSchema.safeParse(value);
+  if (!parsed.success) return parsed.error.issues.map((issue) => `${pathText(issue.path)}: ${issue.message} (not a trilean predicate tree)`);
 
-  const dependencies: readonly string[] = survey.references;
-  const label =
-    options.name === undefined
-      ? "trilean constraint"
-      : `trilean constraint "${options.name}"`;
-  const evaluator = createSyncEvaluator({ functions });
-  const evaluate = (assignment: PartialAssignment): Verdict => {
-    const result = evaluator.evaluatePredicate(
-      node,
-      undefined,
-      resolversFor(assignment),
-    );
-    if (result.status === "definite") return result.value ? "valid" : "invalid";
-    if (dependencies.every((dependency) => assignment.has(dependency))) {
-      throw new UndecidedConstraintError(label, result.reason);
-    }
-
-    return "unknown";
-  };
-
-  return options.name === undefined
-    ? { dependencies, evaluate }
-    : { dependencies, evaluate, name: options.name };
+  return strayKeys(value, parsed.data, "$");
 }
 
-/** Walks the tree from the root, depth first, without recursion, so the depth check reports a deep tree rather than overflowing the walk's own stack. */
-function surveyTree(
-  root: PredicateNode,
-  byName: ReadonlyMap<string, Dimension>,
-  functions: Readonly<FunctionRegistry>,
-): TreeSurvey {
+/** The keys of `given` that the parse of it dropped, as `parsed` is what the schema kept of it, each with its path. */
+function strayKeys(given: unknown, parsed: unknown, path: string): string[] {
+  if (Array.isArray(given) && Array.isArray(parsed)) return given.flatMap((item: unknown, index) => strayKeys(item, parsed[index], `${path}[${String(index)}]`));
+  if (!isPlainObject(given) || !isPlainObject(parsed)) return [];
+
+  return Object.keys(given).flatMap((key) => (Object.hasOwn(parsed, key) ? strayKeys(given[key], parsed[key], `${path}.${key}`) : [`${path}: the key "${key}" is not one trilean defines there (not a trilean predicate tree)`]));
+}
+
+function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Every defect in a well-formed tree that would keep it from being a constraint over the dimensions, found by walking it: a node kind the engine cannot resolve (`some`, `every`, `fold`, `accumulator`, `lookup`, `delegate`, `treeReference`), a `reference` whose key is not a string or names no dimension, a `reference` carrying a `unit` (dimension values carry none), a `call` (no function is registered, as under trilean's own default), and a referenced choice or first-valid dimension that can take `null`, which has no trilean value. The kinds accepted are listed explicitly, so a node kind trilean adds later is refused until the engine is taught it. `check` adds its own defects for each node. The walk is depth first without recursion, so a tree too deep to evaluate is reported by `budgetIssues` rather than overflowing the walk's own stack. The survey also lists the dimensions the tree references, in the order it first mentions them, which are a constraint's `dependencies`.
+ */
+export function surveyTree(root: Condition, byName: ReadonlyMap<string, Dimension>, check: NodeCheck = () => []): TreeSurvey {
   const survey: TreeSurvey = {
     issues: [],
     references: [],
@@ -157,7 +90,9 @@ function surveyTree(
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     survey.nodes += 1;
     survey.deepest = Math.max(survey.deepest, next.depth);
-    const children = visit(next, survey, byName, functions);
+    survey.issues.push(...check(next.node, next.path));
+    // The functions a `call` node may name are trilean's own default, the empty registry, so a tree means the same here as under trilean's bare evaluator and a `call` node is refused.
+    const children = visit(next, survey, byName, emptyFunctionRegistry);
     // Pushed in reverse, so they are popped, and their references first met, in the order the tree lists them.
     for (const [suffix, child] of children.toReversed()) {
       pending.push({
@@ -169,6 +104,53 @@ function surveyTree(
   }
 
   return survey;
+}
+
+/** The defects of a tree whose evaluation could exhaust trilean's default evaluation budget. A tree the survey accepts visits each of its nodes at most once per evaluation, so its node count and depth are exactly what an evaluation can spend, and checking them when the model is defined means the budget is never met partway through an evaluation. */
+export function budgetIssues(survey: Readonly<TreeSurvey>): string[] {
+  return [
+    ...(survey.nodes > DEFAULT_MAX_EVALUATION_NODES ? [`has ${String(survey.nodes)} nodes, more than the ${String(DEFAULT_MAX_EVALUATION_NODES)} one trilean evaluation may visit`] : []),
+    ...(survey.deepest >= DEFAULT_MAX_NESTING_DEPTH ? [`nests to depth ${String(survey.deepest)}, and trilean evaluation refuses depth ${String(DEFAULT_MAX_NESTING_DEPTH)} and deeper`] : []),
+  ];
+}
+
+/** How a constraint from a tree is named: `label` in the message of an error it throws, and `name`, when there is one, as its `Constraint.name`. */
+export interface TreeNaming {
+  readonly label: string;
+  readonly name: string | undefined;
+}
+
+/**
+ * The constraint a tree states over the dimensions, from a tree whose survey found no defects and whose `references` are its dependencies. The tree is bound to one trilean evaluator when the model is defined and reused for every evaluation.
+ *
+ * `evaluate` answers `invalid` for an assignment giving a referenced choice or first-valid dimension a value it can never take, which no combination has (only a strategy's own test assignment can supply one), and otherwise runs trilean's synchronous evaluator with each reference resolved from the assignment: a dimension assigned a string, number or boolean resolves to that text, number or boolean; one assigned unset resolves as known absent (`{ found: false }`, so `exists` is definitely false); one not yet assigned resolves as not yet known (`{ found: false, notYetKnown: true }`, so `exists` and everything reading it stays indeterminate until it is assigned, which is what keeps a definite answer the answer on every completion). A definite true is `valid` and a definite false `invalid`. An indeterminate result is `unknown` while some dependency is unassigned, and throws `UndecidedConstraintError`, carrying trilean's reason and the `label`, once every dependency is assigned, since the contract forbids `unknown` there. A computed dimension that produces `null` throws `UnmappableValueError` when it is read.
+ */
+export function treeConstraint(tree: Condition, dependencies: readonly string[], byName: ReadonlyMap<string, Dimension>, naming: TreeNaming): Constraint {
+  const { label, name } = naming;
+  const evaluator = createSyncEvaluator({ functions: emptyFunctionRegistry });
+  const possible = dependencies.map((dependency) => {
+    const dimension = byName.get(dependency);
+
+    return dimension === undefined ? undefined : possibleKeys(dimension);
+  });
+  const evaluate = (assignment: PartialAssignment): Verdict => {
+    const impossible = dependencies.some((dependency, index) => {
+      const keys = possible[index];
+
+      return keys !== undefined && assignment.has(dependency) && !keys.has(valueKey(assignment.get(dependency)));
+    });
+    if (impossible) return "invalid";
+
+    const result = evaluator.evaluatePredicate(tree, undefined, resolversFor(assignment));
+    if (result.status === "definite") return result.value ? "valid" : "invalid";
+    if (dependencies.every((dependency) => assignment.has(dependency))) {
+      throw new UndecidedConstraintError(label, result.reason);
+    }
+
+    return "unknown";
+  };
+
+  return name === undefined ? { dependencies, evaluate } : { dependencies, evaluate, name };
 }
 
 /** Records the node's own defects and references in the survey, and returns its children with the path suffix that reaches each. */
@@ -271,7 +253,7 @@ function checkReference(
   const dimension = byName.get(key);
   if (dimension === undefined) {
     survey.issues.push(
-      `${path}: the reference key "${key}" names no dimension of the model`,
+      `${path}: mentions unknown dimension "${key}"`,
     );
 
     return;
@@ -353,4 +335,79 @@ function unreachableKind(node: never): never {
   throw new Error(
     `unreachable: node kind ${JSON.stringify(node)} is not one the walk knows`,
   );
+}
+
+/** The kind of trilean value a dimension value maps to, or `null` for the one scalar that maps to none. */
+type ValueKind = "text" | "number" | "boolean" | "null";
+
+function kindOf(value: Scalar): ValueKind {
+  if (typeof value === "string") return "text";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+
+  return "null";
+}
+
+/** The scalar a literal node states, or `undefined` for any other node: the values a comparison is made against. */
+function literalValue(node: ExpressionNode): Scalar | undefined {
+  if (node.kind === "textLiteral" || node.kind === "numberLiteral" || node.kind === "booleanLiteral") return node.value;
+
+  return undefined;
+}
+
+/** A comparison of one dimension, by a direct reference, with literal values: what the checks of `comparisonCheck` can judge from the model alone. `kinds` are the kinds of value the comparison accepts on the dimension's side; `values` are the literals it tests the dimension for equality with. */
+interface Comparison {
+  readonly dimension: string;
+  readonly kinds: ReadonlySet<ValueKind> | undefined;
+  readonly values: readonly Scalar[];
+}
+
+/** The comparison a node makes of a dimension, if it is one the model can judge: a `memberOf` of a reference among literals, or a `textCompare` or `compare` of a reference with a literal. */
+function comparisonOf(node: PredicateNode | ExpressionNode): Comparison | undefined {
+  if (node.kind === "memberOf") {
+    if (node.operand.kind !== "reference" || typeof node.operand.key !== "string") return undefined;
+
+    const values = node.candidates.map(literalValue).filter((value) => value !== undefined);
+
+    return { dimension: node.operand.key, kinds: undefined, values };
+  }
+  if (node.kind !== "textCompare" && node.kind !== "compare") return undefined;
+
+  const [operand, other] = node.left.kind === "reference" ? [node.left, node.right] : [node.right, node.left];
+  if (operand.kind !== "reference" || typeof operand.key !== "string") return undefined;
+
+  const value = literalValue(other);
+  const equality = node.op === "equals" || node.op === "notEquals" || node.op === "eq" || node.op === "neq";
+
+  return { dimension: operand.key, kinds: new Set([node.kind === "textCompare" ? "text" : "number"]), values: equality && value !== undefined ? [value] : [] };
+}
+
+/**
+ * A node check refusing a comparison that could never be decided or never hold for the model's dimensions: comparing a dimension with a value it can never take, and comparing values of different kinds, which trilean leaves indeterminate (`wrong-type`) rather than unequal. A dimension compared by `memberOf` must have its values and the candidates all of one kind; one compared by `textCompare` must have only text values and by `compare` only numbers. A computed dimension's values are not known ahead, so it is left to the evaluation, which throws `UndecidedConstraintError` if a comparison of one stays indeterminate; an unknown dimension and one that can take `null` are reported by the survey itself. A test for unset is not refused here: `isUnset(d)` is the tree `not(exists(d))`, which is also `not(isSet(d))`, simply false for a dimension that is never unset, so only the builder's type refuses it, at compile time.
+ */
+export function comparisonCheck(byName: ReadonlyMap<string, Dimension>): NodeCheck {
+  return (node, path) => {
+    const comparison = comparisonOf(node);
+    if (comparison === undefined) return [];
+
+    const dimension = byName.get(comparison.dimension);
+    const keys = dimension === undefined ? undefined : possibleKeys(dimension);
+    if (dimension === undefined || keys === undefined) return [];
+
+    const issues = comparison.values.filter((value) => !keys.has(valueKey(value))).map((value) => `${path}: compares "${dimension.name}" with ${describeValue(value)}, which it can never take`);
+    const taken = domainKinds(dimension);
+    const compared = comparison.kinds ?? new Set(comparison.values.map(kindOf));
+    const kinds = new Set([...taken, ...compared]);
+    kinds.delete("null");
+    if (kinds.size > 1) issues.push(`${path}: compares "${dimension.name}" across value kinds (${[...kinds].join(", ")}), and trilean compares values of one kind only`);
+
+    return issues;
+  };
+}
+
+/** The kinds of the scalar values a choice or first-valid dimension can take. */
+function domainKinds(dimension: Dimension): Set<ValueKind> {
+  const values: readonly Value[] = dimension.kind === "choice" ? dimension.values : dimension.kind === "first-valid" ? dimension.candidates : [];
+
+  return new Set(values.filter(isScalar).map(kindOf));
 }

@@ -2,7 +2,7 @@ import type { Condition } from "./condition";
 import type { NonEmpty, Value, ValueRecord } from "./value";
 import { valueKey } from "./value";
 
-/** What every dimension carries, whatever its kind. `C` is the type of its activity condition: the literal type of one written in code, which `defineModel` checks against the dimensions declared before it, or `Condition` when it is not known at compile time. */
+/** What every dimension carries, whatever its kind. `C` is the type of its activity condition, a trilean predicate tree: the type a builder gives one written in code, recording what it mentions, which `defineModel` checks against the dimensions declared before it, or `Condition` when it is not known at compile time. */
 interface DimensionCommon<N extends string, C extends Condition> {
   /** The dimension's name: its key in every combination. */
   readonly name: N;

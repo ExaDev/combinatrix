@@ -1,5 +1,5 @@
 // examples/10-typed.ts
-import { choice, collect, computed, defineModel, explain } from "combinatrix";
+import { allOf, choice, collect, computed, defineModel, explain, is } from "combinatrix";
 
 const os = choice("os", ["linux", "macos", "windows"]);
 const arch = choice("arch", ["x64", "arm64"]);
@@ -11,7 +11,7 @@ const model = defineModel({
     // Given as the dimensions themselves, the reads arrive with their own value types.
     computed("target", { reads: [os, arch], compute: (values) => `${values.arch}-${values.os === "macos" ? "apple-darwin" : values.os}` }),
   ],
-  rules: [{ name: "no arm64 on windows", excludes: { all: [{ is: ["os", "windows"] }, { is: ["arch", "arm64"] }] } }],
+  rules: [{ name: "no arm64 on windows", excludes: allOf(is("os", "windows"), is("arch", "arm64")) }],
 });
 
 console.log(collect(model).map(({ values }) => values.target));

@@ -1,6 +1,5 @@
 import type { AbortSignalLike } from "./cancellation";
 import { stepCheck } from "./cancellation";
-import { conditionDependencies } from "./condition";
 import type { Step } from "./engine";
 import { computeValue, firstCandidate, isActive, recordOf, stepsOf, unconditionalConstraints, verdictOf } from "./engine";
 import type { ModelParts } from "./model";
@@ -12,7 +11,7 @@ import { isScalar, sameValue, valueKey } from "./value";
  */
 function optionsAt(step: Step, assignment: Map<string, Value>): readonly Value[] {
   const { dimension } = step;
-  if (!isActive(dimension, assignment)) return [undefined];
+  if (!isActive(step, assignment)) return [undefined];
 
   if (dimension.kind === "choice") return dimension.values;
   if (dimension.kind === "computed") return [computeValue(dimension, assignment)];
@@ -291,9 +290,9 @@ function frontierKey(frontier: readonly string[], assignment: PartialAssignment)
 
 /** The dimensions a step reads besides its own: every dependency of a constraint that mentions it, the dimensions its `activeWhen` mentions, and a computed dimension's `reads`. */
 function readsOf(step: Step): string[] {
-  const { dimension } = step;
+  const { dimension, activity } = step;
 
-  return [...step.constraints.flatMap((constraint) => constraint.dependencies), ...(dimension.activeWhen === undefined ? [] : conditionDependencies(dimension.activeWhen)), ...(dimension.kind === "computed" ? dimension.reads : [])];
+  return [...step.constraints.flatMap((constraint) => constraint.dependencies), ...(activity === undefined ? [] : activity.dependencies), ...(dimension.kind === "computed" ? dimension.reads : [])];
 }
 
 /**
