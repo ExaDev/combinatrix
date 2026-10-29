@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor, candidateCount } from "../test/budget";
 import { hashTest, Random, randomModel, seeds, VALUE_POOL } from "../test/random-model";
 import type { Constraint, Diagnosis, Dimension, Model, ModelParts, Value } from "./index";
 import { at, choice, computed, count, defineModel, diagnose, firstValid, indexOf, isNonEmpty, isSet, LimitExceededError, predicate } from "./index";
@@ -59,13 +60,34 @@ function lateModel(seed: number): AnyModel {
   return defineModel({ dimensions, constraints });
 }
 
-/** Every model the equivalence properties are checked against: the generated models of every feature, and the late-constrained ones. */
-const models: readonly { readonly label: string; readonly model: AnyModel }[] = [...seeds.map((seed) => ({ label: `random ${String(seed)}`, model: randomModel(seed) })), ...seeds.map((seed) => ({ label: `late ${String(seed)}`, model: lateModel(seed) }))];
+interface Labelled {
+  readonly label: string;
+  readonly model: AnyModel;
+}
 
-/** The time one rank or unrank may take, in milliseconds: about forty times what it takes unloaded, so a machine under heavy load still passes and only a search that stops terminating fails. */
-const RANK_OPERATION_BUDGET_MS = 10;
+const randomModels: readonly Labelled[] = seeds.map((seed) => ({ label: `random ${String(seed)}`, model: randomModel(seed) }));
+const lateModels: readonly Labelled[] = seeds.map((seed) => ({ label: `late ${String(seed)}`, model: lateModel(seed) }));
+/** Every model the equivalence properties are checked against: the generated models of every feature, and the late-constrained ones. */
+const models: readonly Labelled[] = [...randomModels, ...lateModels];
+
+/** The combinations the dimensions of `labelled` models could take with the constraints ignored, summed: an upper bound on the leaves a search of each model reaches, and so the work of a test that searches every one of them. */
+function candidatesOf(labelled: readonly Labelled[]): number {
+  return labelled.reduce((total, { model }) => total + candidateCount(model), 0);
+}
+
+/** The time one candidate may take a test, in milliseconds, whatever the number of searches the test makes through it: at least two hundred times what the heaviest of the tests takes on an idle machine, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const CANDIDATE_BUDGET_MS = 4;
+/** The options of a test that searches every model. */
+const EVERY_MODEL = budgetFor(candidatesOf(models), CANDIDATE_BUDGET_MS);
+/** The options of a test that searches the late-constrained models alone. */
+const LATE_MODELS = budgetFor(candidatesOf(lateModels), CANDIDATE_BUDGET_MS);
+
+/** The time one rank or unrank may take, in milliseconds: at least two hundred times what it takes on an idle machine, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const RANK_OPERATION_BUDGET_MS = 125;
 /** The ranks and unranks the exhaustive agreement test makes: one per index of every model, and one more past the last. */
 const RANK_OPERATIONS = models.reduce((total, { model }) => total + count(model) + 1, 0);
+/** The options of the exhaustive agreement test. */
+const EVERY_INDEX = budgetFor(RANK_OPERATIONS, RANK_OPERATION_BUDGET_MS);
 
 /** The diagnosis by the plain search: every combination produced and its values collected, as `diagnose` worked before it counted through the memo. `"limit"` when the solution set has more than `limit` combinations. */
 function referenceDiagnosis(model: ModelParts, limit?: number): Diagnosis | "limit" {
@@ -105,13 +127,13 @@ function countDisagreements(searchOf: (model: ModelParts) => CountingSearch): st
 }
 
 describe("the memoised count", () => {
-  it("generates late-constrained models whose solution sets are neither all empty nor all full", () => {
+  it("generates late-constrained models whose solution sets are neither all empty nor all full", LATE_MODELS, () => {
     const sizes = seeds.map((seed) => count(lateModel(seed)));
     expect(sizes.some((size) => size === 0)).toBe(true);
     expect(sizes.some((size) => size > 1)).toBe(true);
   });
 
-  it("counts what the naive search counts, and refuses past a limit at the same boundary, on every model", () => {
+  it("counts what the naive search counts, and refuses past a limit at the same boundary, on every model", EVERY_MODEL, () => {
     const disagreements = models.filter(({ model }) => {
       const size = countSearch(model, undefined, { completions: naiveCompletions });
 
@@ -120,7 +142,7 @@ describe("the memoised count", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("diagnoses what the naive search diagnoses, the status, count and dead values alike, and refuses past a limit where it does", () => {
+  it("diagnoses what the naive search diagnoses, the status, count and dead values alike, and refuses past a limit where it does", EVERY_MODEL, () => {
     const disagreements = models.filter(({ model }) => {
       const expected = referenceDiagnosis(model);
       const size = expected === "limit" || expected.status === "empty" ? 0 : expected.count;
@@ -130,7 +152,7 @@ describe("the memoised count", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("ranks and unranks as the naive count does, at every index and for every combination", { timeout: RANK_OPERATIONS * RANK_OPERATION_BUDGET_MS }, () => {
+  it("ranks and unranks as the naive count does, at every index and for every combination", EVERY_INDEX, () => {
     const disagreements = models.filter(({ model }) => {
       const size = count(model);
       for (let index = 0; index <= size; index += 1) {
@@ -144,7 +166,7 @@ describe("the memoised count", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("is caught by the equivalence property when the frontier leaves out a dimension it reads", () => {
+  it("is caught by the equivalence property when the frontier leaves out a dimension it reads", EVERY_MODEL, () => {
     const dropFirst = (model: ModelParts): CountingSearch => {
       const search = countingSearch(model, undefined);
 
