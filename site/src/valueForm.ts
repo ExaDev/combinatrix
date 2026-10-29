@@ -3,9 +3,9 @@ import { button, h, select, textInput } from "./dom";
 import { keysOf, unreachable } from "./exhaustive";
 import type { Json, JsonObject, JsonStep, JsonType } from "./json";
 import { isJsonArray, isJsonObject, jsonTypeOf } from "./json";
-import { addKey, convertJson, moveKey, removeKey, renameKeyAt, setNode, uniqueName, updateNode } from "./modelEdit";
+import { addKey, convertJson, moveKey, removeKey, renameKeyAt, setNode, uniqueName } from "./modelEdit";
 import type { RowSpec, TreeHost } from "./controls";
-import { addButton, arrayRow, childLabel, choices, fieldId, numberInput, rowButtons, textField } from "./controls";
+import { addButton, arrayRow, childLabel, choices, fieldId, numberInput, rowButtons, switchNode, textField } from "./controls";
 
 /** How each type of JSON value is named in the menu that chooses it. */
 const JSON_TYPE_LABELS: Readonly<Record<JsonType, string>> = {
@@ -18,6 +18,9 @@ const JSON_TYPE_LABELS: Readonly<Record<JsonType, string>> = {
 };
 
 const JSON_TYPE_CHOICES = choices(keysOf(JSON_TYPE_LABELS), JSON_TYPE_LABELS);
+
+/** The vocabulary of variants a JSON value switches between: its types. A value of a dimension's domain switches between the same ones. */
+export const JSON_VOCABULARY = "json";
 
 const BOOLEAN_CHOICES: readonly Choice<"true" | "false">[] = [
   { value: "true", label: "true" },
@@ -74,7 +77,7 @@ function entriesEditor(host: TreeHost, spec: { readonly path: readonly JsonStep[
 
           return key;
         }
-        host.edit((model) => renameKeyAt(model, path, key, next), { focus: fieldId([...path, next], "key"), announce: `Renamed the key ${key} to ${next}.` });
+        host.edit((model) => renameKeyAt(model, path, key, next), { focus: fieldId([...path, next], "key"), announce: `Renamed the key ${key} to ${next}.`, reshapes: { inside: path } });
 
         return undefined;
       },
@@ -90,7 +93,7 @@ function entriesEditor(host: TreeHost, spec: { readonly path: readonly JsonStep[
     label: spec.addLabel,
     small: true,
     onClick: () => {
-      host.edit((model) => addKey(model, path, uniqueName(keys, spec.newKey), spec.newValue), { focus: fieldId(path, "add"), announce: `${childLabel(label, spec.addLabel)}: added.` });
+      host.edit((model) => addKey(model, path, uniqueName(keys, spec.newKey), spec.newValue), { focus: fieldId(path, "add"), announce: `${childLabel(label, spec.addLabel)}: added.`, reshapes: "nothing" });
     },
   });
 
@@ -118,7 +121,7 @@ export function unitEditor(host: TreeHost, spec: { readonly path: readonly JsonS
         label: "Add a unit",
         small: true,
         onClick: () => {
-          host.edit((model) => addKey(model, spec.path, "unit", {}), { focus: fieldId(unitPath, "add"), announce: `Added a unit to ${spec.label}.` });
+          host.edit((model) => addKey(model, spec.path, "unit", {}), { focus: fieldId(unitPath, "add"), announce: `Added a unit to ${spec.label}.`, reshapes: "nothing" });
         },
       }),
     );
@@ -137,7 +140,7 @@ export function unitEditor(host: TreeHost, spec: { readonly path: readonly JsonS
         label: "Remove the unit",
         small: true,
         onClick: () => {
-          host.edit((model) => removeKey(model, spec.path, "unit"), { focus: fieldId(unitPath, "add"), announce: `Removed the unit of ${spec.label}.` });
+          host.edit((model) => removeKey(model, spec.path, "unit"), { focus: fieldId(unitPath, "add"), announce: `Removed the unit of ${spec.label}.`, reshapes: { within: unitPath } });
         },
       }),
     ),
@@ -155,7 +158,7 @@ export function jsonValueEditor(host: TreeHost, spec: ValueSpec): HTMLElement {
     choices: JSON_TYPE_CHOICES,
     selected: type,
     onChange: (next) => {
-      host.edit((model) => updateNode(model, path, (current) => convertJson(current, next)));
+      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), announce: `${label} is now ${JSON_TYPE_LABELS[next]}.` });
     },
   });
   const buttons = spec.row === undefined ? undefined : rowButtons(host, spec.row);

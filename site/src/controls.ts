@@ -1,5 +1,7 @@
 import type { Choice } from "./dom";
 import { button, h, textInput } from "./dom";
+import type { ItemSwitch, Reshaped } from "./editorState";
+import { nodeSwitch } from "./editorState";
 import type { Direction, Json, JsonObject, JsonStep } from "./json";
 import { parseJson } from "./json";
 import { addListItem, moveListItem, removeListItem, setNode } from "./modelEdit";
@@ -11,11 +13,18 @@ export interface TreeHost {
   readonly edit: (change: (model: JsonObject) => JsonObject, options?: EditOptions) => void;
   /** Applies an edit that changes no structure, so the form is not drawn again and a field being typed in keeps its caret. */
   readonly editQuietly: (change: (model: JsonObject) => JsonObject) => void;
+  /** Switches an item to another variant of it, as an edit that draws the form again does, and remembers what the item was so a switch back gives it back. */
+  readonly switchTo: (item: ItemSwitch, options?: SwitchOptions) => void;
 }
 
-export interface EditOptions {
+export interface SwitchOptions {
   readonly focus?: string;
   readonly announce?: string;
+}
+
+export interface EditOptions extends SwitchOptions {
+  /** Which paths the edit may have changed the meaning of. Left out, it is all of them, and nothing the editor remembers of the items whose type was switched survives the edit. */
+  readonly reshapes?: Reshaped;
 }
 
 /** The dimension names a reference may pick, and where edits go. */
@@ -87,7 +96,7 @@ export function rowButtons(host: TreeHost, row: RowSpec): HTMLElement {
     const target = direction === "earlier" ? position - 1 : position + 1;
     const keepsMoving = direction === "earlier" ? target > 0 : target < last;
     const control = (direction === "earlier") === keepsMoving ? "up" : "down";
-    host.edit((model) => row.move(model, direction), { focus: fieldId(pathAt(target), control), announce: `Moved ${noun} ${direction === "earlier" ? "up" : "down"}.` });
+    host.edit((model) => row.move(model, direction), { focus: fieldId(pathAt(target), control), announce: `Moved ${noun} ${direction === "earlier" ? "up" : "down"}.`, reshapes: { inside: listPath } });
   };
 
   return h(
@@ -101,10 +110,18 @@ export function rowButtons(host: TreeHost, row: RowSpec): HTMLElement {
       label: "Remove",
       small: true,
       onClick: () => {
-        host.edit(row.remove, { focus: fieldId(listPath, "add"), announce: `Removed ${noun}.` });
+        host.edit(row.remove, { focus: fieldId(listPath, "add"), announce: `Removed ${noun}.`, reshapes: { inside: listPath } });
       },
     }),
   );
+}
+
+/**
+ * Switches the node at a path from one variant to another, naming both as items of `vocabulary` (see `typeMemory`): the node becomes what it last was in the variant, if it was ever in it, and otherwise `convert` of what it is now.
+ */
+export function switchNode(host: TreeHost, spec: { readonly path: readonly JsonStep[]; readonly vocabulary: string; readonly from: string; readonly to: string; readonly convert: (current: Json) => Json; readonly announce: string }): void {
+  const variant = (name: string): string => `${spec.vocabulary}:${name}`;
+  host.switchTo(nodeSwitch({ path: spec.path, from: variant(spec.from), to: variant(spec.to), convert: spec.convert }), { announce: spec.announce });
 }
 
 /** A button that adds an item to the list at a path. */
@@ -115,7 +132,7 @@ export function addButton(host: TreeHost, spec: { readonly listPath: readonly Js
     label: spec.label,
     small: true,
     onClick: () => {
-      host.edit((model) => addListItem(model, spec.listPath, spec.item()), { focus: fieldId(spec.listPath, "add"), announce: `${spec.ariaLabel}: added.` });
+      host.edit((model) => addListItem(model, spec.listPath, spec.item()), { focus: fieldId(spec.listPath, "add"), announce: `${spec.ariaLabel}: added.`, reshapes: "nothing" });
     },
   });
 }

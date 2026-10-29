@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { ChoiceDimensionSchema, FirstValidDimensionSchema, ModelSchema, RuleSchema } from "../../scripts/json-schema";
 import type { TreeContext } from "./controls";
-import { ModelForm } from "./form";
+import { Harness } from "./formHarness";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject } from "./json";
 import { DIMENSION_KINDS, DOMAIN_KEYS } from "./modelEdit";
@@ -19,71 +19,8 @@ const NODES_PER_KIND = 10;
 const DEPTH = 1;
 const SEED = 20_261_029;
 
-/** Applies each edit to a model and draws the form again, as the page does. */
-class Harness {
-  model: JsonObject;
-
-  readonly container = document.createElement("div");
-
-  readonly form: ModelForm;
-
-  constructor(model: JsonObject) {
-    this.model = model;
-    document.body.append(this.container);
-    this.form = new ModelForm(this.container, {
-      edit: (change, options) => {
-        this.model = change(this.model);
-        this.form.render(this.model, options?.focus);
-      },
-      editQuietly: (change) => {
-        this.model = change(this.model);
-      },
-    });
-    this.form.render(this.model);
-  }
-
-  /** The control with a field id. */
-  field(id: string): HTMLElement {
-    const found = [...this.container.querySelectorAll<HTMLElement>("[data-field]")].find((element) => element.dataset["field"] === id);
-    if (found === undefined) throw new Error(`no control ${id}; the controls are ${this.fields().join(", ")}`);
-
-    return found;
-  }
-
-  fields(): string[] {
-    return [...this.container.querySelectorAll<HTMLElement>("[data-field]")].map((element) => element.dataset["field"] ?? "");
-  }
-
-  click(id: string): void {
-    this.field(id).click();
-  }
-
-  choose(id: string, value: string): void {
-    const element = this.field(id);
-    if (!(element instanceof HTMLSelectElement)) throw new Error(`${id} is not a menu`);
-    element.value = value;
-    element.dispatchEvent(new Event("change"));
-  }
-
-  type(id: string, text: string): void {
-    const element = this.field(id);
-    if (!(element instanceof HTMLInputElement)) throw new Error(`${id} is not a text box`);
-    element.value = text;
-    element.dispatchEvent(new Event("input"));
-    element.dispatchEvent(new Event("change"));
-  }
-
-  at(path: readonly (string | number)[]): Json | undefined {
-    return getIn(this.model, path);
-  }
-
-  destroy(): void {
-    this.container.remove();
-  }
-}
-
 function contextOf(): TreeContext {
-  return { names: ["os", "arch"], host: { edit: () => undefined, editQuietly: () => undefined } };
+  return { names: ["os", "arch"], host: { edit: () => undefined, editQuietly: () => undefined, switchTo: () => undefined } };
 }
 
 /** Whether some control of a node at `base` is for the schema key `key`: its own field (`base:key`), or one of a part of it (`base.key:` and `base.key.`). */
