@@ -1,7 +1,7 @@
 {
   "name": "combinatrix",
   "description": "Lazily enumerates every valid combination of option dimensions: the solution set of a finite-domain constraint model, with declarative three-valued constraints, derived dimensions and conditional activity",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@commitlint/cli": "21.2.3",
