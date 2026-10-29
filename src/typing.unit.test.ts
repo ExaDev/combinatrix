@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { CombinationOf, TupleOf, TypedCondition, TypedRule } from "./index";
-import { choice, collect, computed, defineModel, firstValid, ModelError } from "./index";
+import { choice, collect, computed, defineModel, firstValid, isNonEmpty, ModelError, sampled } from "./index";
 
 /**
  * Compile-time guarantees. Each `@ts-expect-error` line is load-bearing: `pnpm typecheck` type-checks this file, and a directive whose line compiles is itself an error (TS2578), so a guarantee that stopped holding fails the typecheck. Each refused definition is also run, to show `defineModel` still refuses it at runtime, where data that bypassed the types arrives.
@@ -80,5 +80,20 @@ describe("typed rules", () => {
     const wrong: TypedRule<Combination> = { requires: { is: ["os", "bsd"] } };
     expect(defineModel({ dimensions, rules: [rule] }).rules).toEqual([rule]);
     expect(() => defineModel({ dimensions, rules: [wrong] })).toThrow(ModelError);
+  });
+});
+
+describe("domains", () => {
+  it("are non-empty at compile time, with isNonEmpty as the route for a list built at runtime", () => {
+    // @ts-expect-error a choice needs at least one value
+    expect(() => defineModel({ dimensions: [choice("a", [])] })).toThrow(ModelError);
+    // @ts-expect-error a first-valid dimension needs at least one candidate
+    expect(() => defineModel({ dimensions: [firstValid("a", [])] })).toThrow(ModelError);
+    const fromData: unknown = JSON.parse('["x", "y"]');
+    const values = Array.isArray(fromData) ? fromData.filter((value): value is string => typeof value === "string") : [];
+    if (!isNonEmpty(values)) throw new Error("the data has no values");
+    expect(defineModel({ dimensions: [choice("a", values)] }).dimensions).toEqual([{ kind: "choice", name: "a", values: ["x", "y"] }]);
+    expect(isNonEmpty([])).toBe(false);
+    expect(() => defineModel({ dimensions: [sampled("a", () => [])] })).toThrow(ModelError);
   });
 });

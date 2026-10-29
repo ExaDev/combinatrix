@@ -270,15 +270,18 @@ A limit says nothing about how long a search takes, which depends on how much th
 
 ```ts
 // examples/08-cancellation.ts
-import { choice, count, defineModel, predicate } from "combinatrix";
+import { choice, count, defineModel, isNonEmpty, predicate } from "combinatrix";
 
 const SIZE = 1000;
 const ABORT_AT = 10;
+const values = Array.from({ length: SIZE }, (_, index) => index);
+// A list built at runtime is typed number[], so it is narrowed to a non-empty domain first.
+if (!isNonEmpty(values)) throw new Error("SIZE is positive");
 const controller = new AbortController();
 let evaluations = 0;
 
 const model = defineModel({
-  dimensions: [choice("n", Array.from({ length: SIZE }, (_, index) => index))],
+  dimensions: [choice("n", values)],
   constraints: [
     predicate({
       reads: ["n"],
@@ -312,9 +315,9 @@ true
 
 ### Dimensions
 
-- `choice(name, values, options?)`: a free dimension over `values`, in order. Include `undefined` to make unset one of the choices.
+- `choice(name, values, options?)`: a free dimension over `values`, in order. Include `undefined` to make unset one of the choices. `values` is typed non-empty (`NonEmpty<V>`), so an empty list is a compile error; narrow a list built at runtime with `isNonEmpty(values)` first.
 - `sampled(name, sampler, options?)`: a free dimension whose values are the finite points `sampler()` returns, called once when the model is defined. This is the only way a continuous range enters a model.
-- `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
+- `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. `candidates` is typed non-empty, as for `choice`. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
 - `computed(name, { reads, compute, activeWhen? })`: a derived dimension computed by a pure function of the dimensions in `reads`, each declared before it.
 
 `options.activeWhen` is a condition on dimensions declared before this one. Where it does not hold, the dimension is unset, and its type gains `undefined`.

@@ -32,7 +32,9 @@ describe("defineModel", () => {
   it.each<[string, ModelDefinition<readonly Dimension[]>, string]>([
     ["a duplicate name", { dimensions: [choice("a", [1]), choice("a", [2])] }, 'dimension "a" is declared more than once'],
     ["an empty name", { dimensions: [choice("", [1])] }, "a dimension has an empty name"],
+    // @ts-expect-error an empty domain is a compile error, and refused at runtime too
     ["an empty domain", { dimensions: [choice("a", [])] }, 'dimension "a" has no values'],
+    ["an empty sampled domain", { dimensions: [sampled("a", () => [])] }, 'dimension "a" has no values'],
     ["a repeated value", { dimensions: [choice("a", [1, 1])] }, 'dimension "a" lists 1 more than once'],
     ["a non-finite number", { dimensions: [sampled("a", () => [Number.POSITIVE_INFINITY])] }, 'dimension "a" has value Infinity, which is not a JSON scalar'],
     ["a computed dimension reading a later one", { dimensions: [computed("a", { reads: ["b"], compute: () => 1 }), choice("b", [1])] }, 'dimension "a" reads "b", which is not a dimension declared before it'],
@@ -51,6 +53,7 @@ describe("defineModel", () => {
   });
 
   it("lists every defect, not only the first", () => {
+    // @ts-expect-error an empty domain is a compile error
     expect(issuesOf({ dimensions: [choice("a", []), choice("a", [1, 1])] })).toEqual(['dimension "a" has no values', 'dimension "a" lists 1 more than once', 'dimension "a" is declared more than once']);
   });
 });

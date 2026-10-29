@@ -9,6 +9,14 @@ export type Value = Scalar | undefined;
  */
 export type PartialAssignment = ReadonlyMap<string, Value>;
 
+/** A list with at least one element: the type of a domain, so an empty one is a compile error. */
+export type NonEmpty<T> = readonly [T, ...T[]];
+
+/** Whether a list has at least one element: the runtime route to `NonEmpty` for a domain built from data. */
+export function isNonEmpty<T>(values: readonly T[]): values is NonEmpty<T> {
+  return values.length > 0;
+}
+
 /** Whether a value is a scalar this library can store and compare: anything JSON-shaped except a non-finite number. */
 export function isScalar(value: unknown): value is Scalar {
   if (typeof value === "number") return Number.isFinite(value);

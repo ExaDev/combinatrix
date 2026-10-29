@@ -1,13 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { CombinationOf, Constraint, Strategy } from "./index";
-import { choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, explainData, firstValid, full, LimitExceededError, predicate, StrategyError } from "./index";
+import { choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, explainData, firstValid, full, isNonEmpty, LimitExceededError, predicate, StrategyError } from "./index";
 
 const SIDE = 3;
 const DIMENSION_COUNT = 4;
 const SPACE = SIDE ** DIMENSION_COUNT;
 
-const cube = defineModel({ dimensions: Array.from({ length: DIMENSION_COUNT }, (_, index) => choice(`d${String(index)}`, Array.from({ length: SIDE }, (_unused, value) => value))) });
+const SIDE_VALUES = Array.from({ length: SIDE }, (_, value) => value);
+if (!isNonEmpty(SIDE_VALUES)) throw new Error("a side has at least one value");
+const cube = defineModel({ dimensions: Array.from({ length: DIMENSION_COUNT }, (_, index) => choice(`d${String(index)}`, SIDE_VALUES)) });
 
 describe("combinations", () => {
   it("is lazy: advancing it once computes one combination", () => {

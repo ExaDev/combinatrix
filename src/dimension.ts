@@ -1,5 +1,5 @@
 import type { Condition } from "./condition";
-import type { Value } from "./value";
+import type { NonEmpty, Value } from "./value";
 
 /** What every dimension carries, whatever its kind. */
 interface DimensionCommon<N extends string> {
@@ -49,10 +49,10 @@ export interface ConditionalOptions {
 /** Produces the finite points at which a continuous dimension is measured. Called once, when the model is defined. */
 export type Sampler<V extends Value> = () => readonly V[];
 
-/** A free dimension over the given values, in order. Include `undefined` to make unset one of the choices. */
-export function choice<const N extends string, const V extends Value>(name: N, values: readonly V[], options: ConditionalOptions): ChoiceDimension<N, V | undefined>;
-export function choice<const N extends string, const V extends Value>(name: N, values: readonly V[], options?: DimensionOptions): ChoiceDimension<N, V>;
-export function choice<const N extends string, const V extends Value>(name: N, values: readonly V[], options: DimensionOptions = {}): ChoiceDimension<N, V> {
+/** A free dimension over the given values, in order. Include `undefined` to make unset one of the choices. The list is typed non-empty, so an empty domain is a compile error; a list built at runtime is narrowed with `isNonEmpty` first. */
+export function choice<const N extends string, const V extends Value>(name: N, values: NonEmpty<V>, options: ConditionalOptions): ChoiceDimension<N, V | undefined>;
+export function choice<const N extends string, const V extends Value>(name: N, values: NonEmpty<V>, options?: DimensionOptions): ChoiceDimension<N, V>;
+export function choice<const N extends string, const V extends Value>(name: N, values: NonEmpty<V>, options: DimensionOptions = {}): ChoiceDimension<N, V> {
   return withActivity({ kind: "choice", name, values }, options);
 }
 
@@ -63,10 +63,10 @@ export function sampled<const N extends string, V extends Value>(name: N, sample
   return withActivity({ kind: "choice", name, values: sampler() }, options);
 }
 
-/** A derived dimension resolved to the first of the candidates that the constraints accept. See `FirstValidDimension`. */
-export function firstValid<const N extends string, const V extends Value>(name: N, candidates: readonly V[], options: ConditionalOptions): FirstValidDimension<N, V | undefined>;
-export function firstValid<const N extends string, const V extends Value>(name: N, candidates: readonly V[], options?: DimensionOptions): FirstValidDimension<N, V>;
-export function firstValid<const N extends string, const V extends Value>(name: N, candidates: readonly V[], options: DimensionOptions = {}): FirstValidDimension<N, V> {
+/** A derived dimension resolved to the first of the candidates that the constraints accept. See `FirstValidDimension`. The list is typed non-empty, as for `choice`. */
+export function firstValid<const N extends string, const V extends Value>(name: N, candidates: NonEmpty<V>, options: ConditionalOptions): FirstValidDimension<N, V | undefined>;
+export function firstValid<const N extends string, const V extends Value>(name: N, candidates: NonEmpty<V>, options?: DimensionOptions): FirstValidDimension<N, V>;
+export function firstValid<const N extends string, const V extends Value>(name: N, candidates: NonEmpty<V>, options: DimensionOptions = {}): FirstValidDimension<N, V> {
   return withActivity({ kind: "first-valid", name, candidates }, options);
 }
 

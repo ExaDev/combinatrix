@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Condition, Constraint, Dimension, ModelParts, Rule, Scalar, Value } from "./index";
-import { choice, computed, defineModel, firstValid, predicate } from "./index";
+import type { Condition, Constraint, Dimension, ModelParts, NonEmpty, Rule, Scalar, Value } from "./index";
+import { choice, computed, defineModel, firstValid, isNonEmpty, predicate } from "./index";
 import { referenceCombinations } from "./reference";
 import { countSearch, searchCombinations } from "./search";
 
@@ -62,12 +62,15 @@ class Random {
     return items[this.int(0, items.length - 1)] as T;
   }
 
-  /** A non-empty selection of distinct items, in their original order. */
-  subset<T>(items: readonly T[], size: number): T[] {
+  /** A non-empty selection of distinct items, in their original order, from a non-empty list and a positive size. */
+  subset<T>(items: readonly T[], size: number): NonEmpty<T> {
     const chosen = new Set<number>();
     while (chosen.size < Math.min(size, items.length)) chosen.add(this.int(0, items.length - 1));
 
-    return items.filter((_, index) => chosen.has(index));
+    const selection = items.filter((_, index) => chosen.has(index));
+    if (!isNonEmpty(selection)) throw new Error("a subset of a non-empty list with a positive size is non-empty");
+
+    return selection;
   }
 }
 
@@ -227,7 +230,9 @@ describe("countSearch", () => {
     const size = 10;
     const dimensionCount = 6;
     const evaluated: Value[] = [];
-    const dimensions = Array.from({ length: dimensionCount }, (_, index) => choice(`d${String(index)}`, Array.from({ length: size }, (_unused, value) => value)));
+    const domain = Array.from({ length: size }, (_, value) => value);
+    if (!isNonEmpty(domain)) throw new Error("the size is positive");
+    const dimensions = Array.from({ length: dimensionCount }, (_, index) => choice(`d${String(index)}`, domain));
     const excludesZero = predicate({
       reads: ["d0"],
       test: ({ d0 }) => {

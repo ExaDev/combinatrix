@@ -14,4 +14,5 @@ export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model"
 export type { Rule, TypedRule } from "./rule";
 export { full } from "./strategy";
 export type { Strategy, StrategyContext } from "./strategy";
-export type { PartialAssignment, Scalar, Value } from "./value";
+export { isNonEmpty } from "./value";
+export type { NonEmpty, PartialAssignment, Scalar, Value } from "./value";
