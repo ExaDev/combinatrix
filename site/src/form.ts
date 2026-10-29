@@ -8,7 +8,7 @@ import {
   addDimension,
   addRule,
   addValue,
-  convertValueAt,
+  convertJson,
   DIMENSION_KIND_LABELS,
   DIMENSION_KINDS,
   dimensionNames,
@@ -19,20 +19,25 @@ import {
   removeRule,
   removeValue,
   renameDimension,
+  restate,
   RULE_FORM_LABELS,
   RULE_FORMS,
+  ruleStatement,
   setActiveWhen,
   setDimensionKind,
   setRuleForm,
   setRuleName,
   setRuleScope,
+  setRuleStatement,
   setValue,
+  statementShape,
   viewOfModel,
 } from "./modelEdit";
 import type { ScalarType } from "./scalars";
 import { parseNumber, SCALAR_TYPE_LABELS, SCALAR_TYPES, scalarType } from "./scalars";
 import type { ItemControls, TreeContext, TreeHost } from "./controls";
-import { choices, fieldId, rawJson, rowButtons } from "./controls";
+import { choices, fieldId, rawJson, rowButtons, switchNode } from "./controls";
+import { JSON_VOCABULARY } from "./valueForm";
 import { optionalCondition, predicateNode } from "./treeForm";
 
 /** What the page offers the form for editing the model. */
@@ -45,6 +50,9 @@ const BOOLEAN_CHOICES: readonly Choice<"true" | "false">[] = [
   { value: "true", label: "true" },
   { value: "false", label: "false" },
 ];
+
+/** The vocabulary of variants a rule's statement switches between: its shapes, a single condition and a pair. */
+const STATEMENT_VOCABULARY = "statement";
 
 const DIMENSIONS = "dimensions";
 const RULES = "rules";
@@ -68,7 +76,7 @@ function valueRow(host: FormHost, spec: { readonly index: number; readonly name:
     choices: SCALAR_TYPE_CHOICES,
     selected: type,
     onChange: (next: ScalarType) => {
-      host.edit((model) => convertValueAt(model, index, position, next));
+      switchNode(host, { path, vocabulary: JSON_VOCABULARY, from: type, to: next, convert: (current) => convertJson(current, next), announce: `${label} is now ${SCALAR_TYPE_LABELS[next]}.` });
     },
   });
 
@@ -141,7 +149,7 @@ function dimensionCard(ctx: TreeContext, spec: { readonly index: number; readonl
     choices: DIMENSION_CHOICES,
     selected: view.dimensionKind,
     onChange: (next: DimensionKind) => {
-      host.edit((model) => setDimensionKind(model, index, next), { announce: `${view.name} is now a ${DIMENSION_KIND_LABELS[next]} dimension.` });
+      host.edit((model) => setDimensionKind(model, index, next), { announce: `${view.name} is now a ${DIMENSION_KIND_LABELS[next]} dimension.`, reshapes: { inside: path } });
     },
   });
   const rows = view.values.map((_, position) => {
@@ -165,7 +173,7 @@ function dimensionCard(ctx: TreeContext, spec: { readonly index: number; readonl
     label: "Add a value",
     small: true,
     onClick: () => {
-      host.edit((model) => addValue(model, index), { focus: fieldId(valuesPath, "add"), announce: `Added a value to ${view.name}.` });
+      host.edit((model) => addValue(model, index), { focus: fieldId(valuesPath, "add"), announce: `Added a value to ${view.name}.`, reshapes: "nothing" });
     },
   });
   const heading = h("h4", {}, `Dimension ${String(index + 1)}: `, h("span", { class: "mono" }, view.name));
@@ -216,7 +224,27 @@ function ruleCard(ctx: TreeContext, spec: { readonly index: number; readonly cou
     choices: RULE_FORM_CHOICES,
     selected: body.form,
     onChange: (next: RuleForm) => {
-      host.edit((model) => setRuleForm(model, index, next), { announce: `Rule ${String(index + 1)} now ${next}.` });
+      const announce = `Rule ${String(index + 1)} now ${next}.`;
+      if (statementShape(next) === statementShape(body.form)) {
+        // Only the key the condition is stated under changes, so the items inside it are at other paths.
+        host.edit((model) => setRuleForm(model, index, next), { announce, reshapes: { inside: path } });
+
+        return;
+      }
+      const from = body.form;
+      host.switchTo(
+        {
+          place: path,
+          from: `${STATEMENT_VOCABULARY}:${statementShape(from)}`,
+          to: `${STATEMENT_VOCABULARY}:${statementShape(next)}`,
+          read: (model) => ruleStatement(model, index),
+          write: (model, statement) => setRuleStatement(model, index, next, statement),
+          convert: (statement) => restate(statement, from, next, ctx.names),
+          // The statement is stated under another key, which the paths of the items inside it contain.
+          inside: "dropped",
+        },
+        { announce },
+      );
     },
   });
   const name = textInput({
@@ -283,7 +311,7 @@ export class ModelForm {
         ariaLabel: label,
         label,
         onClick: () => {
-          this.#host.edit(change, { focus: fieldId([part], "add"), announce });
+          this.#host.edit(change, { focus: fieldId([part], "add"), announce, reshapes: "nothing" });
         },
       });
 

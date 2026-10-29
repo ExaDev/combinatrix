@@ -2,12 +2,13 @@ import type { Value } from "combinatrix";
 
 import type { SpawnWorker } from "./client";
 import { CancelledError, EngineClient } from "./client";
-import type { EditorState } from "./editorState";
-import { emptyState, stateFromModel, stateFromText } from "./editorState";
+import type { EditorState, ItemSwitch } from "./editorState";
+import { emptyState, stateAfterEdit, stateAfterSwitch, stateFromModel, stateFromText } from "./editorState";
 import { EXAMPLES, exampleText } from "./examples";
 import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
+import type { EditOptions, SwitchOptions } from "./controls";
 import { ModelForm } from "./form";
 import { fillHelp } from "./help";
 import type { JsonObject } from "./json";
@@ -221,7 +222,7 @@ interface Update {
   readonly announce?: string;
 }
 
-const form = new ModelForm(formContainer, { edit, editQuietly });
+const form = new ModelForm(formContainer, { edit, editQuietly, switchTo });
 
 /** Makes `next` the state of the form and the JSON view, and has the engine check its text. */
 function showState(next: EditorState, update: Update): void {
@@ -238,24 +239,30 @@ function showState(next: EditorState, update: Update): void {
 }
 
 /** The form's own edits: a change of the model, which rewrites the JSON text. */
-function edit(change: (model: JsonObject) => JsonObject, options: { readonly focus?: string; readonly announce?: string } = {}): void {
-  showState(stateFromModel(change(state.model)), { writeText: true, draw: true, ...options });
+function edit(change: (model: JsonObject) => JsonObject, options: EditOptions = {}): void {
+  const { reshapes, ...update } = options;
+  showState(stateAfterEdit(state, change, reshapes), { writeText: true, draw: true, ...update });
 }
 
 function editQuietly(change: (model: JsonObject) => JsonObject): void {
-  showState(stateFromModel(change(state.model)), { writeText: true, draw: false });
+  showState(stateAfterEdit(state, change, "nothing"), { writeText: true, draw: false });
+}
+
+/** The form switching an item to another variant of it: the model changes, and the editor remembers what the item was. */
+function switchTo(item: ItemSwitch, options: SwitchOptions = {}): void {
+  showState(stateAfterSwitch(state, item), { writeText: true, draw: true, ...options });
 }
 
 /** The JSON text changed, by typing in the Advanced view: a model the form can show updates the form, anything else leaves it showing the last valid model and keeps the text exactly as typed. */
 function textTyped(): void {
-  const next = stateFromText(editor.value, state.model);
+  const next = stateFromText(editor.value, state);
   showState(next, { writeText: false, draw: next.model !== state.model });
 }
 
 /** Replaces the model with the one a text holds, as loading an example, a link, a gist, a saved model or a file does: the form shows it, and the text is as given. */
 function setModel(text: string): void {
   editor.value = text;
-  const next = stateFromText(text, state.model);
+  const next = stateFromText(text, state);
   showState(next, { writeText: false, draw: true });
 }
 
@@ -580,7 +587,7 @@ function start(): void {
 
   editor.addEventListener("input", textTyped);
   useLastValid.addEventListener("click", () => {
-    showState(stateFromModel(state.model), { writeText: true, draw: true, announce: "The JSON was replaced by the last valid model." });
+    showState(stateFromModel(state.model, state.memory), { writeText: true, draw: true, announce: "The JSON was replaced by the last valid model." });
   });
   emptyModelButton.addEventListener("click", () => {
     showState(emptyState(), { writeText: true, draw: true, announce: "Started an empty model." });

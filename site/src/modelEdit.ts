@@ -5,7 +5,6 @@ import type { Direction, Json, JsonObject, JsonStep, JsonType } from "./json";
 import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, moveEntry, omit, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
 import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
 import { classifyExpression, classifyPredicate, createPredicate } from "./nodes";
-import type { ScalarType } from "./scalars";
 import { convertScalar, isScalar } from "./scalars";
 
 /**
@@ -353,14 +352,6 @@ export function setValue(model: JsonObject, index: number, position: number, val
   return asModel(setIn(model, [...domainPath(model, index), position], value));
 }
 
-/** The model with the value at a position of a dimension's domain converted to the nearest value of another type, from the value the model holds now. */
-export function convertValueAt(model: JsonObject, index: number, position: number, type: ScalarType): JsonObject {
-  const value = getIn(model, [...domainPath(model, index), position]);
-  if (value === undefined || !isScalar(value)) throw new Error(`no value at position ${String(position)} of dimension ${String(index)}`);
-
-  return setValue(model, index, position, convertScalar(value, type));
-}
-
 /** A JSON value of another type that stands for this one: scalars convert as `convertScalar` does, a list or object is kept when it is the type asked for, and a value of any other type starts the type's default (an empty list or object). */
 export function convertJson(value: Json, type: JsonType): Json {
   switch (type) {
@@ -407,21 +398,49 @@ export function moveRule(model: JsonObject, index: number, direction: Direction)
   return asModel(moveAt(model, ["rules"], index, direction));
 }
 
-/** Changes which of `requires`, `excludes` and `implies` a rule states. Between the first two the condition stays; to `implies` it becomes the antecedent beside a new consequent, and from it the antecedent becomes the condition. */
-export function setRuleForm(model: JsonObject, index: number, form: RuleForm): JsonObject {
+/** What a rule states under its form, which is all that changing the form can lose: the condition of `requires` and `excludes`, and the pair of antecedent and consequent of `implies`. */
+export function ruleStatement(model: JsonObject, index: number): Json {
+  const shown = classifyRule(arrayAt(model, ["rules"])[index] ?? null);
+  if (shown.kind === "raw") throw new Error("a rule the form cannot edit has no statement");
+
+  return shown.body.form === "implies" ? [shown.body.antecedent, shown.body.consequent] : shown.body.condition;
+}
+
+/** The two shapes a rule's statement has: a single condition, which `requires` and `excludes` share, and the pair of `implies`. */
+export type StatementShape = "condition" | "pair";
+
+export function statementShape(form: RuleForm): StatementShape {
+  return form === "implies" ? "pair" : "condition";
+}
+
+/** The statement of a rule in another form, from its statement in `from`: between the first two the condition stays; to `implies` it becomes the antecedent beside a new consequent, and from it the antecedent becomes the condition. */
+export function restate(statement: Json, from: RuleForm, to: RuleForm, names: readonly string[]): Json {
+  const view = classifyRule({ [from]: statement });
+  if (view.kind === "raw") throw new Error(`unreachable: a statement of ${from} was read from a rule that states it`);
+  const kept = view.body.form === "implies" ? view.body.antecedent : view.body.condition;
+
+  return to === "implies" ? [kept, createPredicate("exists", names)] : kept;
+}
+
+/** The model with the rule at `index` stating `statement` in the form `form`, in the place of the key it stated itself under, so the order of the rule's keys is kept. */
+export function setRuleStatement(model: JsonObject, index: number, form: RuleForm, statement: Json): JsonObject {
   return asModel(
     updateIn(model, ["rules", index], (current) => {
       const shown = classifyRule(current);
       if (shown.kind === "raw") throw new Error("a rule the form cannot edit has no form to change");
-      if (shown.body.form === form) return current;
 
-      const names = dimensionNames(model);
-      const kept = shown.body.form === "implies" ? shown.body.antecedent : shown.body.condition;
-      const stated: Json = form === "implies" ? [kept, createPredicate("exists", names)] : kept;
-
-      return { ...renameKey(objectOf(current), shown.body.form, form), [form]: stated };
+      return { ...renameKey(objectOf(current), shown.body.form, form), [form]: statement };
     }),
   );
+}
+
+/** Changes which of `requires`, `excludes` and `implies` a rule states (see `restate`). */
+export function setRuleForm(model: JsonObject, index: number, form: RuleForm): JsonObject {
+  const shown = classifyRule(arrayAt(model, ["rules"])[index] ?? null);
+  if (shown.kind === "raw") throw new Error("a rule the form cannot edit has no form to change");
+  if (shown.body.form === form) return model;
+
+  return setRuleStatement(model, index, form, restate(ruleStatement(model, index), shown.body.form, form, dimensionNames(model)));
 }
 
 /** Sets or removes a rule's label. */

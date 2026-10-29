@@ -4,7 +4,7 @@ import { execute } from "./engine";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject } from "./json";
 import type { RuleView } from "./modelEdit";
-import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, removeDimension, removeListItem, removeRule, removeValue, renameDimension, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
+import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, removeDimension, removeListItem, removeRule, removeValue, renameDimension, restate, ruleStatement, setRuleStatement, statementShape, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
 
 /** Numbers the tests write into values, and how often a renamed reference is expected to occur in the two trees that hold them. */
 const NUMBER_VALUE = 3;
@@ -309,6 +309,33 @@ describe("rules", () => {
 
   it("keeps the order of a rule's keys through a change of form", () => {
     expect(Object.keys(objectOf(ruleAt(setRuleForm(MODEL, 0, "requires"), 0)))).toEqual(["name", "requires", "when"]);
+  });
+
+  it("reads what a rule states, whatever its form", () => {
+    const codecIsSet: Json = { kind: "exists", operand: { kind: "reference", key: "codec" } };
+
+    expect(ruleStatement(MODEL, 0)).toEqual(codecIsSet);
+    expect(ruleStatement(setRuleForm(MODEL, 0, "implies"), 0)).toEqual([codecIsSet, { kind: "exists", operand: OS }]);
+  });
+
+  it("sets what a rule states under another form, in the place of the key it stated itself under", () => {
+    const pair: Json = [{ kind: "exists", operand: OS }, { kind: "exists", operand: { kind: "reference", key: "arch" } }];
+    const implied = setRuleStatement(MODEL, 0, "implies", pair);
+
+    expect(Object.keys(objectOf(ruleAt(implied, 0)))).toEqual(["name", "implies", "when"]);
+    expect(ruleStatement(implied, 0)).toEqual(pair);
+  });
+
+  it("restates a statement in another form, keeping the condition and starting a consequent", () => {
+    const dimensions = ["os", "arch"];
+
+    expect(restate(IS_WINDOWS, "excludes", "requires", dimensions)).toBe(IS_WINDOWS);
+    expect(restate(IS_WINDOWS, "requires", "implies", dimensions)).toEqual([IS_WINDOWS, { kind: "exists", operand: OS }]);
+    expect(restate([IS_WINDOWS, OS], "implies", "excludes", dimensions)).toBe(IS_WINDOWS);
+  });
+
+  it("names the two shapes a statement has", () => {
+    expect([statementShape("requires"), statementShape("excludes"), statementShape("implies")]).toEqual(["condition", "condition", "pair"]);
   });
 
   it("sets and removes a rule's name, when and unless", () => {

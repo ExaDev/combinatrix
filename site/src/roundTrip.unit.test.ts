@@ -174,7 +174,7 @@ function everythingStructured(model: JsonObject): boolean {
 
 /** A model through its text and back, as the editor does between the form and the JSON view. */
 function throughText(model: JsonObject): JsonObject {
-  return stateFromText(stateFromModel(model).text, EMPTY_MODEL).model;
+  return stateFromText(stateFromModel(model).text, stateFromModel(EMPTY_MODEL)).model;
 }
 
 describe("trees of every kind the schema defines", () => {
@@ -225,7 +225,7 @@ describe("generated models", () => {
     fc.assert(
       fc.property(validModelArb, (model) => {
         const text = stateFromModel(model).text;
-        const reread = stateFromText(text, EMPTY_MODEL);
+        const reread = stateFromText(text, stateFromModel(EMPTY_MODEL));
 
         expect(reread.problem).toBeUndefined();
         expect(reread.model).toEqual(model);
@@ -283,7 +283,7 @@ describe("constructs the form cannot show", () => {
   it("survive the text round trip deep-equal", () => {
     fc.assert(
       fc.property(strangeModelArb, (model) => {
-        const state = stateFromText(JSON.stringify(model), EMPTY_MODEL);
+        const state = stateFromText(JSON.stringify(model), stateFromModel(EMPTY_MODEL));
 
         expect(state.problem).toBeUndefined();
         expect(state.model).toEqual(model);
