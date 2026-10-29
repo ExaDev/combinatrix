@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { Json } from "./json";
-import { addEntry, arrayAt, getIn, insertAt, isJson, isJsonArray, isJsonObject, jsonTypeOf, keysAt, moveAt, moveEntry, objectAt, omit, parseJson, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
+import { addEntry, arrayAt, getIn, insertAt, isJson, isJsonArray, isJsonObject, jsonTypeOf, keysAt, moveAt, moveEntry, objectAt, omit, parseJson, putIn, removeAt, removeEntry, renameEntry, sameJson, setIn, updateIn } from "./json";
 
 /** A fraction, the length of the three-item list below, which is also the first position past its end, and a position far past it. */
 const FRACTION = 1.5;
 const LIST_LENGTH = 3;
 const FAR_LIST_LENGTH = 9;
+
+const REPLACEMENT = 9;
+const ADDED = 4;
 
 const DOCUMENT: Json = { list: [{ name: "a" }, { name: "b" }, { name: "c" }], other: { untouched: [1, 2] } };
 
@@ -155,5 +158,45 @@ describe("object entry edits", () => {
 
   it("names the type of any JSON value", () => {
     expect([jsonTypeOf("a"), jsonTypeOf(1), jsonTypeOf(true), jsonTypeOf(null), jsonTypeOf([]), jsonTypeOf({})]).toEqual(["text", "number", "boolean", "null", "list", "object"]);
+  });
+});
+
+describe("sameJson", () => {
+  it("compares scalars, arrays in order and objects whatever the order of their keys", () => {
+    expect(sameJson({ a: [1, { b: null }], c: "x" }, { c: "x", a: [1, { b: null }] })).toBe(true);
+    expect(sameJson([1, 2], [2, 1])).toBe(false);
+    expect(sameJson({ a: 1 }, { a: 1, b: 1 })).toBe(false);
+    expect(sameJson({ a: 1 }, { b: 1 })).toBe(false);
+    expect(sameJson("1", 1)).toBe(false);
+    expect(sameJson([], {})).toBe(false);
+    expect(sameJson(null, {})).toBe(false);
+  });
+
+  it("treats an absent value as the same as an absent one only", () => {
+    expect(sameJson(undefined, undefined)).toBe(true);
+    expect(sameJson(undefined, null)).toBe(false);
+  });
+});
+
+describe("putIn", () => {
+  const ROOT: Json = { a: { b: [1, 2] }, c: 3 };
+
+  it("replaces the value at a path, an array item included, and the whole value at the empty path", () => {
+    expect(putIn(ROOT, ["a", "b", 1], REPLACEMENT)).toEqual({ a: { b: [1, REPLACEMENT] }, c: 3 });
+    expect(putIn(ROOT, [], "all")).toBe("all");
+  });
+
+  it("adds an entry of an object that is absent, at the end, and removes one when the replacement is absent", () => {
+    expect(Object.keys(putIn(ROOT, ["a", "d"], ADDED) as object)).toEqual(["a", "c"]);
+    expect(putIn(ROOT, ["a", "d"], ADDED)).toEqual({ a: { b: [1, 2], d: 4 }, c: 3 });
+    expect(putIn(ROOT, ["c"], undefined)).toEqual({ a: { b: [1, 2] } });
+    expect(putIn(ROOT, ["z"], undefined)).toEqual(ROOT);
+  });
+
+  it("refuses a path through something that is not there, an absent item of an array, and an absent whole", () => {
+    expect(() => putIn(ROOT, ["x", "y"], 1)).toThrow("the path leaves the value");
+    expect(() => putIn(ROOT, ["a", "b", 2], 1)).toThrow("no position 2");
+    expect(() => putIn(ROOT, ["a", "b", 0], undefined)).toThrow("no position 0");
+    expect(() => putIn(ROOT, [], undefined)).toThrow("cannot be absent");
   });
 });
