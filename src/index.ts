@@ -1,0 +1,17 @@
+export type { Condition } from "./condition";
+export { predicate } from "./constraint";
+export type { Constraint, PredicateDefinition, PredicateValues, Verdict } from "./constraint";
+export { choice, computed, firstValid, sampled } from "./dimension";
+export type { ChoiceDimension, ComputedDefinition, ComputedDimension, ConditionalOptions, Dimension, DimensionOptions, FirstValidDimension, NameOf, Sampler, TupleOf, ValueOf } from "./dimension";
+export { collect, combinations, count, diagnose } from "./enumerate";
+export type { Combination, CombinationsOptions, DeadValue, Diagnosis, LimitOptions } from "./enumerate";
+export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelError, StrategyError } from "./errors";
+export { explain } from "./explain";
+export type { Explanation, Reason } from "./explain";
+export { isCondition, isRule } from "./guards";
+export { defineModel } from "./model";
+export type { Model, ModelDefinition, ModelParts } from "./model";
+export type { Rule } from "./rule";
+export { full } from "./strategy";
+export type { Strategy, StrategyContext } from "./strategy";
+export type { PartialAssignment, Scalar, Value } from "./value";
