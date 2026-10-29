@@ -21,6 +21,11 @@ export interface Constraint {
   readonly name?: string;
 }
 
+/** A constraint built by `predicate`: the `Constraint` contract with its dependencies typed as the literal names it reads, so `defineModel` can check them against the dimensions at compile time. */
+export interface Predicate<R extends string> extends Constraint {
+  readonly dependencies: readonly R[];
+}
+
 /** The values a predicate reads: exactly the dimensions it declared, each set or unset. */
 export type PredicateValues<R extends string> = Readonly<Record<R, Value>>;
 
@@ -37,7 +42,7 @@ export interface PredicateDefinition<R extends string> {
 /**
  * A constraint from an arbitrary function: the escape hatch for a rule the declarative forms cannot state. It answers `unknown` until every dimension in `reads` is assigned and then calls `test`, so a function that reads only what it declared is a sound constraint. It is not serialisable; the declarative rules are.
  */
-export function predicate<const R extends string>(definition: PredicateDefinition<R>): Constraint {
+export function predicate<const R extends string>(definition: PredicateDefinition<R>): Predicate<R> {
   const { reads, test } = definition;
   const evaluate = (assignment: PartialAssignment): Verdict => {
     if (!reads.every((dimension) => assignment.has(dimension))) return "unknown";

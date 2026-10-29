@@ -342,7 +342,7 @@ Rules and conditions written in code are typed (`TypedRule<T>`, `TypedCondition<
 
 ### Models
 
-`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
+`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it. Where the definition is written in code, the compiler refuses what its types can show of the same list (a duplicate name, an activity condition, computed `reads`, rule or `predicate` mentioning an unknown or later dimension or a value a dimension can never take, and a first-valid dimension constrained with a later one), naming each defect in an `error` property the argument lacks. A part whose type is not literal, such as a name typed `string`, a `Condition` read from data or a third-party `Constraint`, is checked at runtime only.
 
 ### Enumerating
 

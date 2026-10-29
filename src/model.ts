@@ -1,3 +1,4 @@
+import type { ConstraintDefects, DimensionDefects, Refusal, RuleDefects } from "./checks";
 import type { Condition, Mention } from "./condition";
 import { conditionDependencies, conditionMentions } from "./condition";
 import type { Constraint } from "./constraint";
@@ -8,14 +9,16 @@ import { ruleConditions, ruleConstraint } from "./rule";
 import type { Value } from "./value";
 import { describeValue, isScalar, valueKey } from "./value";
 
-/** The definition `defineModel` takes. */
-export interface ModelDefinition<Ds extends readonly Dimension[]> {
+/**
+ * The definition `defineModel` takes. `Ds`, `Rs` and `Cs` are the literal types of the dimensions, rules and constraints, inferred from a definition written in code, so that the compiler refuses what `defineModel` would refuse at runtime where the types can show it: a duplicated name, an activity condition or computed dimension reading a later or unknown dimension, a rule or constraint mentioning an unknown dimension or a value a dimension can never take, and a first-valid dimension constrained together with a later one. A refused part is reported as a missing `error` property naming each defect.
+ */
+export interface ModelDefinition<Ds extends readonly Dimension[], Rs extends readonly TypedRule<TupleOf<Ds>>[] = readonly TypedRule<TupleOf<Ds>>[], Cs extends readonly Constraint[] = readonly Constraint[]> {
   /** The dimensions, in enumeration order: the first varies slowest. */
-  readonly dimensions: Ds;
+  readonly dimensions: Ds & Refusal<DimensionDefects<Ds>>;
   /** Declarative constraints, as JSON-shaped data whose dimension names and compared values are checked against the dimensions at compile time. Rules read from JSON go through `parseRules` first, which checks them at runtime and returns them typed. `defineModel` checks every rule at runtime as well, since data can bypass the types. */
-  readonly rules?: readonly TypedRule<TupleOf<Ds>>[];
-  /** Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. */
-  readonly constraints?: readonly Constraint[];
+  readonly rules?: Rs & Refusal<RuleDefects<Ds, Rs>>;
+  /** Constraints given through the three-valued contract, such as `predicate` or another package's constraint language. Literal dependencies, such as `predicate`'s, are checked at compile time; dependencies typed `string` at runtime only. */
+  readonly constraints?: Cs & Refusal<ConstraintDefects<Ds, Cs>>;
 }
 
 /** The parts of a checked model that do not depend on the type of its combinations. */
@@ -40,7 +43,7 @@ export type CombinationOf<M> = M extends Model<infer T> ? T : never;
 /**
  * Checks a model definition and returns the model. Throws `ModelError` listing every defect: a duplicated or empty name, an empty domain, a value that is not a JSON scalar or appears twice, a reference to an unknown or later dimension, a rule comparing a dimension against a value it cannot take, or a constraint on a first-valid dimension that mentions a dimension declared after it.
  */
-export function defineModel<const Ds extends readonly Dimension[]>(definition: ModelDefinition<Ds>): Model<TupleOf<Ds>> {
+export function defineModel<const Ds extends readonly Dimension[], const Rs extends readonly TypedRule<TupleOf<Ds>>[] = readonly TypedRule<TupleOf<Ds>>[], const Cs extends readonly Constraint[] = readonly Constraint[]>(definition: ModelDefinition<Ds, Rs, Cs>): Model<TupleOf<Ds>> {
   const { dimensions } = definition;
   const rules: readonly Rule[] = definition.rules ?? [];
   const given = definition.constraints ?? [];
