@@ -20,15 +20,176 @@ Three things make the solution set the one you mean rather than the raw product:
 
 Constraints are evaluated three-valued on partial assignments, answering valid, invalid or unknown. The search assigns dimensions in declaration order and abandons a branch as soon as a constraint answers invalid, which is sound because every constraint is monotone: a definite answer on a partial assignment is the answer on every completion of it. A naive generate-then-filter enumeration is kept as the reference, and the search is tested to produce exactly its output, in the same order.
 
-## Example
+## Examples
+
+Each example is a file in `examples/` that the test suite runs, and the block comment after each statement that prints is what it printed, so the output shown is always the real output.
+
+A model is a list of dimensions. With only `choice` dimensions the solution set is the Cartesian product of their domains, and `combinations` produces it lazily: nothing is computed past the combination you stop at, and the first dimension varies slowest.
 
 ```ts
-import { choice, collect, count, defineModel, explain, firstValid } from "combinatrix";
+// examples/01-combinations.ts
+import { choice, combinations, count, defineModel } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+  ],
+});
+
+console.log(count(model, { limit: 100 }));
+/*
+6
+*/
+
+for (const { values } of combinations(model)) console.log(values);
+/*
+{ os: 'linux', arch: 'x64' }
+{ os: 'linux', arch: 'arm64' }
+{ os: 'macos', arch: 'x64' }
+{ os: 'macos', arch: 'arm64' }
+{ os: 'windows', arch: 'x64' }
+{ os: 'windows', arch: 'arm64' }
+*/
+```
+
+Putting `undefined` in a domain lets a dimension be left out. A combination then has the key with the value `undefined`: it means "left out" and is a value like any other, never a sentinel string.
+
+```ts
+// examples/02-unset.ts
+import { choice, collect, count, defineModel } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+    choice("runtime", [undefined, "node", "bun"]),
+  ],
+});
+
+console.log(count(model, { limit: 100 }));
+/*
+18
+*/
+
+const [first] = collect(model, { limit: 100 });
+console.log(first?.values);
+/*
+{ os: 'linux', arch: 'x64', runtime: undefined }
+*/
+```
+
+A rule removes combinations. This one excludes the Windows combinations, but only when the runtime is `bun` (`requires` states what must hold instead, and `implies` links two conditions). `explain` takes any record and says whether it is in the solution set, and if not, why: `constraint` is the compiled constraint and `rule` is the rule as written.
+
+```ts
+// examples/03-rules.ts
+import { choice, count, defineModel, explain } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "macos", "windows"]),
+    choice("arch", ["x64", "arm64"]),
+    choice("runtime", [undefined, "node", "bun"]),
+  ],
+  rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
+});
+
+console.log(count(model, { limit: 100 }));
+/*
+16
+*/
+
+console.dir(explain(model, { os: "windows", arch: "x64", runtime: "bun" }), { depth: null });
+/*
+{
+  valid: false,
+  reasons: [
+    {
+      kind: 'constraint',
+      index: 0,
+      constraint: {
+        dependencies: [ 'runtime', 'os' ],
+        evaluate: [Function: evaluate],
+        name: 'bun is not offered on windows'
+      },
+      rule: {
+        name: 'bun is not offered on windows',
+        excludes: { is: [ 'os', 'windows' ] },
+        when: { is: [ 'runtime', 'bun' ] }
+      }
+    }
+  ]
+}
+*/
+```
+
+`firstValid` declares a derived dimension: not a free choice but the first candidate that no rule rejects, so the preferred codec comes first. `activeWhen` makes it take part only when `compress` is set, and otherwise it is unset, so an uncompressed build is listed once and not once per codec. Windows rejects `zstd`, so the codec derived there is `brotli`.
+
+```ts
+// examples/04-derived.ts
+import { choice, collect, defineModel, firstValid } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [
+    choice("os", ["linux", "windows"]),
+    choice("compress", [undefined, true]),
+    // The preferred codec first; the one chosen is the first that no rule rejects.
+    firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: { set: "compress" } }),
+  ],
+  rules: [{ name: "windows has no zstd", excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
+});
+
+for (const { values } of collect(model, { limit: 100 })) console.log(values);
+/*
+{ os: 'linux', compress: undefined, codec: undefined }
+{ os: 'linux', compress: true, codec: 'zstd' }
+{ os: 'windows', compress: undefined, codec: undefined }
+{ os: 'windows', compress: true, codec: 'brotli' }
+*/
+```
+
+`predicate` states a constraint as a function, for what a rule cannot say, here that the two architectures must be equal. It must read only the dimensions it names, and it answers nothing until they are all assigned. `diagnose` searches the whole solution set and lists the values no combination takes: no native build reaches `riscv64`.
+
+```ts
+// examples/05-predicate.ts
+import { choice, count, defineModel, diagnose, predicate } from "combinatrix";
+
+const model = defineModel({
+  dimensions: [choice("buildArch", ["x64", "arm64"]), choice("targetArch", ["x64", "arm64", "riscv64"])],
+  constraints: [
+    predicate({
+      reads: ["buildArch", "targetArch"],
+      name: "builds are native",
+      test: ({ buildArch, targetArch }) => buildArch === targetArch,
+    }),
+  ],
+});
+
+console.log(count(model, { limit: 100 }));
+/*
+2
+*/
+
+console.log(diagnose(model, { limit: 100 }));
+/*
+{
+  status: 'satisfiable',
+  count: 2,
+  deadValues: [ { dimension: 'targetArch', value: 'riscv64' } ]
+}
+*/
+```
+
+The last example puts all of it together in the shape of a measurement matrix: unset values, a `channel` that is derived and only takes part when one of two features is on, and two rules that restrict it. The record given to `explain` names the weakest channel, `beta`, for a feature that needs `canary` or `dev`, so there are two reasons: `beta` is not the channel derived for those settings, and it breaks the rule.
+
+```ts
+// examples/06-advanced.ts
+import { choice, count, defineModel, explain, firstValid } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
     choice("mode", [undefined, "token"]),
-    choice("targetRatio", [undefined, 0.5, 0.3]),
+    choice("ratio", [undefined, "moderate", "aggressive"]),
     choice("interceptors", [undefined, true]),
     choice("maturation", [undefined, true]),
     // Only needed when a feature is on, then the least channel that unlocks it.
@@ -40,12 +201,39 @@ const model = defineModel({
   ],
 });
 
-count(model, { limit: 1000 }); // 24
-for (const { id, values } of collect(model, { limit: 1000 })) {
-  values.channel; // "beta" | "canary" | "dev" | undefined, inferred from the dimensions
+console.log(count(model, { limit: 1000 }));
+/*
+24
+*/
+
+console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true, maturation: undefined, channel: "beta" }), { depth: null });
+/*
+{
+  valid: false,
+  reasons: [
+    {
+      kind: 'derived',
+      dimension: 'channel',
+      value: 'beta',
+      expected: 'canary'
+    },
+    {
+      kind: 'constraint',
+      index: 0,
+      constraint: {
+        dependencies: [ 'interceptors', 'channel' ],
+        evaluate: [Function: evaluate],
+        name: 'interceptors need canary or dev'
+      },
+      rule: {
+        name: 'interceptors need canary or dev',
+        requires: { in: [ 'channel', [ 'canary', 'dev' ] ] },
+        when: { is: [ 'interceptors', true ] }
+      }
+    }
+  ]
 }
-explain(model, { mode: "token", targetRatio: undefined, interceptors: true, maturation: undefined, channel: "beta" });
-// { valid: false, reasons: [{ kind: "derived", dimension: "channel", value: "beta", expected: "canary" }, { kind: "constraint", rule: { name: "interceptors need canary or dev", ... }, ... }] }
+*/
 ```
 
 ## API

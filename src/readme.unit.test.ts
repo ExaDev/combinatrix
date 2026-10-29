@@ -1,0 +1,186 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { format, inspect } from "node:util";
+
+import { describe, expect, it, vi } from "vitest";
+
+/**
+ * The README's examples are the files in `examples/`. Each is shown verbatim in a fenced `ts` block of the README whose first line is the comment naming its file, and each shows what it prints in the bare block comments, with the opening and closing delimiters each on a line of their own, that follow the statements printing it. This suite runs every file, so an example that stops compiling or running fails here; compares each README block with its file byte for byte; compares the lines a file prints with the lines of those block comments; and derives the expected values of each example by plain loops, independently of the library.
+ */
+const ROOT = join(import.meta.dirname, "..");
+const EXAMPLES_DIRECTORY = join(ROOT, "examples");
+const MARKER = /^\/\/ examples\/(?<file>\S+\.ts)$/u;
+
+/** Each example module is imported by a literal path so the bundler can follow it; importing a module runs it. */
+const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
+  "01-combinations.ts": async () => import("../examples/01-combinations"),
+  "02-unset.ts": async () => import("../examples/02-unset"),
+  "03-rules.ts": async () => import("../examples/03-rules"),
+  "04-derived.ts": async () => import("../examples/04-derived"),
+  "05-predicate.ts": async () => import("../examples/05-predicate"),
+  "06-advanced.ts": async () => import("../examples/06-advanced"),
+};
+
+const FILES = Object.keys(LOADERS);
+
+/** The lines an example prints through `console.log` and `console.dir`, formatted as Node formats them, in the order printed. */
+async function printedBy(file: string): Promise<string[]> {
+  const load = LOADERS[file];
+  if (load === undefined) throw new Error(`no loader for ${file}`);
+
+  const lines: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...args: readonly unknown[]) => void lines.push(...format(...args).split("\n")));
+  const dir = vi.spyOn(console, "dir").mockImplementation((value: unknown, options?: object) => void lines.push(...inspect(value, { customInspect: false, ...options }).split("\n")));
+  try {
+    await load();
+  } finally {
+    log.mockRestore();
+    dir.mockRestore();
+  }
+
+  return lines;
+}
+
+/** The output a source file claims: the lines of each bare block comment, verbatim. */
+function claimedBy(source: string): string[] {
+  const claimed: string[] = [];
+  let inBlock = false;
+  for (const line of source.split("\n")) {
+    if (line === "/*") inBlock = true;
+    else if (line === "*/") inBlock = false;
+    else if (inBlock) claimed.push(line);
+  }
+
+  return claimed;
+}
+
+/** The README's fenced `ts` blocks that start with an example marker, keyed by the file they name, in README order. */
+function readmeExamples(): Map<string, string> {
+  const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+  const blocks = new Map<string, string>();
+  for (const match of readme.matchAll(/^```ts\n(?<code>[\s\S]*?)\n```$/gmu)) {
+    const code = match.groups?.["code"] ?? "";
+    const file = MARKER.exec(code.split("\n")[0] ?? "")?.groups?.["file"];
+    if (file === undefined) continue;
+
+    if (blocks.has(file)) throw new Error(`README shows ${file} twice`);
+    blocks.set(file, code);
+  }
+
+  return blocks;
+}
+
+const printed = new Map<string, Promise<string[]>>();
+
+/** What an example prints, running it on first use only: importing a module runs it once, and a test file's tests run one at a time, so the spies in `printedBy` never overlap. */
+async function printedOf(file: string): Promise<string[]> {
+  const run = printed.get(file) ?? printedBy(file);
+  printed.set(file, run);
+
+  return await run;
+}
+
+function sourceOf(file: string): string {
+  return readFileSync(join(EXAMPLES_DIRECTORY, file), "utf8");
+}
+
+describe("the README's examples", () => {
+  it("has a loader for every file in examples and a block in the README for every file, in order", () => {
+    expect(readdirSync(EXAMPLES_DIRECTORY).sort()).toEqual(FILES);
+    expect([...readmeExamples().keys()]).toEqual(FILES);
+  });
+
+  it.each(FILES)("shows %s in the README byte for byte", (file) => {
+    expect(`${readmeExamples().get(file) ?? ""}\n`).toBe(sourceOf(file));
+  });
+
+  it.each(FILES)("prints what the block comments of %s say it prints", async (file) => {
+    expect(claimedBy(sourceOf(file))).toEqual(await printedOf(file));
+  });
+});
+
+const OS = ["linux", "macos", "windows"] as const;
+const ARCH = ["x64", "arm64"] as const;
+const RUNTIME = [undefined, "node", "bun"] as const;
+
+describe("the combinations example", () => {
+  it("prints the size of the Cartesian product, then each combination with the first dimension varying slowest", async () => {
+    const expected = OS.flatMap((os) => ARCH.map((arch) => format({ os, arch })));
+    expect(await printedOf("01-combinations.ts")).toEqual([String(OS.length * ARCH.length), ...expected]);
+  });
+});
+
+describe("the unset example", () => {
+  it("counts the product with unset as a value, and shows the key present with the value undefined", async () => {
+    expect(await printedOf("02-unset.ts")).toEqual([String(OS.length * ARCH.length * RUNTIME.length), format({ os: "linux", arch: "x64", runtime: undefined })]);
+  });
+});
+
+describe("the rules example", () => {
+  const survivors = OS.flatMap((os) => ARCH.flatMap((arch) => RUNTIME.filter((runtime) => !(runtime === "bun" && os === "windows")).map((runtime) => ({ os, arch, runtime }))));
+
+  it("counts the product less the combinations the rule excludes", async () => {
+    expect((await printedOf("03-rules.ts"))[0]).toBe(String(survivors.length));
+  });
+
+  it("explains the excluded combination by naming the rule that excludes it, and no other reason", async () => {
+    const explanation = (await printedOf("03-rules.ts")).slice(1).join("\n");
+    expect(explanation).toContain("valid: false");
+    expect(explanation).toContain("name: 'bun is not offered on windows'");
+    expect(explanation.match(/kind:/gu)).toHaveLength(1);
+  });
+});
+
+describe("the derived example", () => {
+  it("lists a compressed combination once per operating system with the first codec the rule accepts, and an uncompressed one with no codec", async () => {
+    const codecs = ["zstd", "brotli", "gzip"] as const;
+    const expected = (["linux", "windows"] as const).flatMap((os) =>
+      ([undefined, true] as const).map((compress) => {
+        const codec = compress === undefined ? undefined : codecs.find((candidate) => !(os === "windows" && candidate === "zstd"));
+
+        return format({ os, compress, codec });
+      }),
+    );
+    expect(await printedOf("04-derived.ts")).toEqual(expected);
+  });
+});
+
+describe("the predicate example", () => {
+  const BUILD = ["x64", "arm64"] as const;
+  const TARGET = ["x64", "arm64", "riscv64"] as const;
+  const accepted = BUILD.flatMap((buildArch) => TARGET.filter((targetArch) => buildArch === targetArch).map((targetArch) => ({ buildArch, targetArch })));
+
+  it("counts the pairs the function accepts and reports as dead the target no pair uses", async () => {
+    const dead = TARGET.filter((targetArch) => !accepted.some((pair) => pair.targetArch === targetArch));
+    expect(dead).toEqual(["riscv64"]);
+    expect(await printedOf("05-predicate.ts")).toEqual([String(accepted.length), ...format({ status: "satisfiable", count: accepted.length, deadValues: dead.map((value) => ({ dimension: "targetArch", value })) }).split("\n")]);
+  });
+});
+
+describe("the advanced example", () => {
+  const CHANNELS = [undefined, "beta", "canary", "dev"] as const;
+  const SWITCH = [undefined, true] as const;
+  const solutions = SWITCH.flatMap((interceptors) =>
+    SWITCH.flatMap((maturation) => {
+      if (interceptors === undefined && maturation === undefined) return [undefined];
+
+      const accepts = (channel: (typeof CHANNELS)[number]) => (interceptors !== true || channel === "canary" || channel === "dev") && (maturation !== true || channel === "beta" || channel === "dev");
+      const channel = CHANNELS.find(accepts);
+
+      return channel === undefined ? [] : [channel];
+    }),
+  );
+
+  it("counts the free choices times the channels the features leave open", async () => {
+    const modes = 2;
+    const ratios = 3;
+    expect((await printedOf("06-advanced.ts"))[0]).toBe(String(modes * ratios * solutions.length));
+  });
+
+  it("explains a channel too weak for the interceptors by the derived channel and the rule", async () => {
+    const explanation = (await printedOf("06-advanced.ts")).slice(1).join("\n");
+    expect(explanation).toContain("expected: 'canary'");
+    expect(explanation).toContain("name: 'interceptors need canary or dev'");
+    expect(explanation.match(/kind:/gu)).toHaveLength(2);
+  });
+});
