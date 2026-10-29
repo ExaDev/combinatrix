@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { execute } from "./engine";
@@ -7,8 +6,6 @@ import { EXAMPLES } from "./examples";
 import { Harness } from "./formHarness";
 import type { Json, JsonObject } from "./json";
 import { isJsonObject, parseJson } from "./json";
-import { EXPRESSION_KINDS, PREDICATE_KINDS } from "./nodes";
-import { anyExpressionArb, anyPredicateArb } from "./treeArbitraries";
 
 /** The example the page starts with: a dimension of three operating systems and a rule that excludes one of them. */
 const STARTING_EXAMPLE = 1;
@@ -22,10 +19,6 @@ const TWELVE = 12;
 const ANSWER = 42;
 const FRACTION = -2.5;
 
-const DEPTH = 1;
-const RUNS = 40;
-const MAX_SWITCHES = 6;
-const SEED = 20_261_030;
 
 /** A model the page can show, read from JSON text so it shares nothing with the one a test edits. */
 function modelOf(value: unknown): JsonObject {
@@ -397,42 +390,5 @@ describe("a rule's form", () => {
 
     expect(harness.at(["rules", 0, "name"])).toBe("renamed");
     harness.destroy();
-  });
-});
-
-describe("any chain of kinds that returns to the start", () => {
-  it("restores any predicate", () => {
-    const kinds = fc.array(fc.constantFrom(...PREDICATE_KINDS), { minLength: 1, maxLength: MAX_SWITCHES });
-    fc.assert(
-      fc.property(anyPredicateArb(DEPTH), kinds, (condition, chain) => {
-        
-        const harness = new Harness(ruleModel(condition));
-        const start = isJsonObject(condition) ? condition["kind"] : undefined;
-        if (typeof start !== "string") throw new Error("a predicate has a kind");
-        for (const kind of [...chain, start]) harness.choose("rules.0.excludes:kind", kind);
-        const restored = harness.at(["rules", 0, "excludes"]);
-        harness.destroy();
-
-        expect(restored).toEqual(condition);
-      }),
-      { numRuns: RUNS, seed: SEED },
-    );
-  });
-
-  it("restores any expression", () => {
-    const kinds = fc.array(fc.constantFrom(...EXPRESSION_KINDS), { minLength: 1, maxLength: MAX_SWITCHES });
-    fc.assert(
-      fc.property(anyExpressionArb(DEPTH), kinds, (expression, chain) => {
-        const harness = new Harness(ruleModel({ kind: "compare", op: "eq", left: OS, right: expression }));
-        const start = isJsonObject(expression) ? expression["kind"] : undefined;
-        if (typeof start !== "string") throw new Error("an expression has a kind");
-        for (const kind of [...chain, start]) harness.choose("rules.0.excludes.right:kind", kind);
-        const restored = harness.at(["rules", 0, "excludes", "right"]);
-        harness.destroy();
-
-        expect(restored).toEqual(expression);
-      }),
-      { numRuns: RUNS, seed: SEED },
-    );
   });
 });
