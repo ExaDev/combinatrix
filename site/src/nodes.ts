@@ -1,9 +1,12 @@
+import type { Scalar } from "combinatrix";
 import type { ExpressionNode, PredicateNode } from "trilean";
 import { ArithmeticOperatorSchema, ComparisonOperatorSchema, DurationUnitSchema, ExpressionNodeSchema, HitPolicySchema, MembershipOperatorSchema, PredicateNodeSchema, TextComparisonOperatorSchema } from "trilean";
 
 import { unreachable } from "./exhaustive";
 import type { Json, JsonObject } from "./json";
 import { isJsonArray, isJsonObject } from "./json";
+import type { ScalarType } from "./scalars";
+import { carryScalar } from "./scalars";
 
 /**
  * The trilean tree nodes a model's conditions are made of, as JSON, and how the form reads them. Every kind that trilean's schemas define has a widget: the kinds are read from the schemas below, so a kind trilean adds is a compile error where a kind is listed and a failing test where a widget is drawn.
@@ -516,10 +519,23 @@ function carriedFromExpression(view: ExpressionView): readonly Json[] {
   }
 }
 
-/** The expression with its kind changed, keeping its operands where the new kind has them. */
+/** The scalar type of the value a literal of each kind holds, for the kinds that hold one. */
+const LITERAL_SCALAR_TYPES: Readonly<Partial<Record<ExpressionKind, ScalarType>>> = { textLiteral: "text", numberLiteral: "number", booleanLiteral: "boolean" };
+
+/** The value a text, number or boolean literal holds. */
+function literalValue(view: ExpressionView): Scalar | undefined {
+  return view.kind === "textLiteral" || view.kind === "numberLiteral" || view.kind === "booleanLiteral" ? view.value : undefined;
+}
+
+/** The expression with its kind changed, keeping its operands where the new kind has them, and the value of a literal where the new kind is a literal that can hold the same value (`carryScalar`): `12` becomes the text `12`, and the text `12` the number. What cannot be kept starts as the new kind's default; the editor remembers it, so switching back restores it. */
 export function changeExpressionKind(current: Json, kind: ExpressionKind, names: readonly string[]): Json {
   const view = classifyExpression(current);
   if (view.kind === kind) return current;
+
+  const value = literalValue(view);
+  const type = LITERAL_SCALAR_TYPES[kind];
+  const carried = value === undefined || type === undefined ? undefined : carryScalar(value, type);
+  if (carried !== undefined) return { kind, value: carried };
 
   return createExpression(kind, names, carriedFromExpression(view));
 }

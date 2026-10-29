@@ -4,14 +4,10 @@ import { execute } from "./engine";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject } from "./json";
 import type { RuleView } from "./modelEdit";
-import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, convertScalar, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, parseNumber, removeDimension, removeListItem, removeRule, removeValue, renameDimension, scalarType, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
+import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, removeDimension, removeListItem, removeRule, removeValue, renameDimension, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
 
 /** Numbers the tests write into values, and how often a renamed reference is expected to occur in the two trees that hold them. */
 const NUMBER_VALUE = 3;
-const TWELVE = 12;
-const SEVEN = 7;
-const THOUSAND = 1000;
-const NEGATIVE_FRACTION = -2.5;
 const REFERENCES_IN_STRANGE_RULES = 3;
 const REFERENCES_IN_EVERY_KIND = 7;
 const RENAMED_REFERENCES_IN_FOLDING_RULES = 5;
@@ -273,36 +269,6 @@ describe("values", () => {
     expect(domainOf(edited, 0)).toEqual([NUMBER_VALUE, true]);
     expect(domainOf(edited, 1)).toEqual([null, "arm64"]);
     expect(domainOf(edited, 2)).toEqual(["zstd", "z"]);
-  });
-
-  it("names the type of a value", () => {
-    expect([scalarType("a"), scalarType(1), scalarType(false), scalarType(null)]).toEqual(["text", "number", "boolean", "null"]);
-  });
-
-  it("converts a value to the nearest value of another type", () => {
-    expect(convertScalar(String(TWELVE), "number")).toBe(TWELVE);
-    expect(convertScalar("twelve", "number")).toBe(0);
-    expect(convertScalar(true, "number")).toBe(1);
-    expect(convertScalar(null, "number")).toBe(0);
-    expect(convertScalar(TWELVE, "text")).toBe(String(TWELVE));
-    expect(convertScalar(null, "text")).toBe("");
-    expect(convertScalar("true", "boolean")).toBe(true);
-    expect(convertScalar("yes", "boolean")).toBe(false);
-    expect(convertScalar(0, "boolean")).toBe(false);
-    expect(convertScalar(2, "boolean")).toBe(true);
-    expect(convertScalar("x", "null")).toBeNull();
-    expect(convertScalar(SEVEN, "number")).toBe(SEVEN);
-  });
-
-  it("parses a number only when the text states a finite one", () => {
-    expect(parseNumber("1e3")).toBe(THOUSAND);
-    expect(parseNumber(" -2.5 ")).toBe(NEGATIVE_FRACTION);
-    expect(Object.is(parseNumber("-0"), 0)).toBe(true);
-    expect(parseNumber("")).toBeUndefined();
-    expect(parseNumber("  ")).toBeUndefined();
-    expect(parseNumber("1.")).toBe(1);
-    expect(parseNumber("abc")).toBeUndefined();
-    expect(parseNumber("Infinity")).toBeUndefined();
   });
 
   it("makes a new text value no other is", () => {
