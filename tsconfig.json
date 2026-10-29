@@ -27,5 +27,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "examples", "scripts", "test", "*.config.ts"]
+  "include": ["src", "examples", "scripts", "test", "*.config.ts", "site/vite.config.ts"]
 }
