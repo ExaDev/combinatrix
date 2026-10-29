@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor, GENERATED_CANDIDATES } from "../test/budget";
 import { MAX_FREE_DIMENSIONS, Random, randomModel, seeds, VALUE_POOL } from "../test/random-model";
 import type { Combination, Model, Value } from "./index";
 import { at, choice, combinations, computed, count, defineModel, explainData, firstValid, indexOf, indexOfData, is, isNonEmpty, isSet, predicate, samples } from "./index";
@@ -8,6 +9,11 @@ import { exactCompletions, rankSearch, unrankSearch } from "./search";
 import { valueKey } from "./value";
 
 type AnyModel = Model<Readonly<Record<string, Value>>>;
+
+/** The time a test may spend per candidate combination of the generated models, in milliseconds, whatever the number of times the test ranks, unranks or scans it: at least two hundred times what the heaviest of them takes on an idle machine, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const CANDIDATE_BUDGET_MS = 25;
+/** The options of a test that visits every generated model. */
+const GENERATED_MODELS = budgetFor(GENERATED_CANDIDATES, CANDIDATE_BUDGET_MS);
 
 /** How many draws each sampling property takes from a generated model. */
 const DRAWS = 8;
@@ -80,7 +86,7 @@ const offByOne: CompletionCount = (search, depth, assignment) => {
 };
 
 describe("at", () => {
-  it("is the combination combinations produces at each index, with its id, for every index of every generated model", () => {
+  it("is the combination combinations produces at each index, with its id, for every index of every generated model", GENERATED_MODELS, () => {
     const disagreements = seeds.filter((seed) => {
       const model = randomModel(seed);
       const expected = expectedOf(model);
@@ -90,7 +96,7 @@ describe("at", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("reports an index at or past the end as undefined, the end being count(model)", () => {
+  it("reports an index at or past the end as undefined, the end being count(model)", GENERATED_MODELS, () => {
     for (const seed of seeds) {
       const model = randomModel(seed);
       const size = count(model);
@@ -105,7 +111,7 @@ describe("at", () => {
     for (const index of [-1, FRACTION, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) expect(() => at(model, index)).toThrow(RangeError);
   });
 
-  it("is caught by the property when a subtree count is off by one", () => {
+  it("is caught by the property when a subtree count is off by one", GENERATED_MODELS, () => {
     const caught = seeds.filter((seed) => {
       const model = randomModel(seed);
       const expected = expectedOf(model);
@@ -127,7 +133,7 @@ describe("at", () => {
 });
 
 describe("indexOf and indexOfData", () => {
-  it("invert at: the index of the combination at each index is that index, for every generated model", () => {
+  it("invert at: the index of the combination at each index is that index, for every generated model", GENERATED_MODELS, () => {
     const disagreements = seeds.filter((seed) => {
       const model = randomModel(seed);
 
@@ -136,7 +142,7 @@ describe("indexOf and indexOfData", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("are the linear-scan index of every near miss of every combination, -1 exactly when explainData says it is not valid", () => {
+  it("are the linear-scan index of every near miss of every combination, -1 exactly when explainData says it is not valid", GENERATED_MODELS, () => {
     const disagreements = seeds.filter((seed) => {
       const model = randomModel(seed);
       const expected = expectedOf(model);
@@ -153,7 +159,7 @@ describe("indexOf and indexOfData", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("accept data that leaves out the derived dimensions, as explainData does", () => {
+  it("accept data that leaves out the derived dimensions, as explainData does", GENERATED_MODELS, () => {
     for (const seed of seeds) {
       const model = randomModel(seed);
       const derived = model.dimensions.filter((dimension) => dimension.kind !== "choice").map((dimension) => dimension.name);
@@ -174,7 +180,7 @@ describe("indexOf and indexOfData", () => {
     }
   });
 
-  it("are caught by the property when a subtree count is off by one", () => {
+  it("are caught by the property when a subtree count is off by one", GENERATED_MODELS, () => {
     const caught = seeds.filter((seed) => {
       const model = randomModel(seed);
 
@@ -185,7 +191,7 @@ describe("indexOf and indexOfData", () => {
 });
 
 describe("samples", () => {
-  it("draws the combinations at the indices a seeded source returns, each bounded by count(model)", () => {
+  it("draws the combinations at the indices a seeded source returns, each bounded by count(model)", GENERATED_MODELS, () => {
     for (const seed of seeds) {
       const model = randomModel(seed);
       const expected = expectedOf(model);

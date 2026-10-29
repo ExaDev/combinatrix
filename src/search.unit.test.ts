@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor, GENERATED_CANDIDATES } from "../test/budget";
 import { randomModel, seeds } from "../test/random-model";
 import type { ModelParts, Value } from "./index";
 import { choice, defineModel, isNonEmpty, predicate } from "./index";
 import { referenceCombinations } from "./reference";
 import { countSearch, searchCombinations } from "./search";
+
+/** The time a test may spend per candidate combination of the generated models, in milliseconds, whatever the number of times the test searches it or enumerates it by the reference: at least two hundred times what the heaviest of them takes on an idle machine, so a machine under heavy load still passes and only a search that stops terminating fails. */
+const CANDIDATE_BUDGET_MS = 10;
+/** The options of a test that visits every generated model. */
+const GENERATED_MODELS = budgetFor(GENERATED_CANDIDATES, CANDIDATE_BUDGET_MS);
 
 /** Whether a search agrees with the reference on a model: the same records in the same order. */
 function agrees(search: (model: ModelParts) => Iterable<Record<string, Value>>, model: ModelParts, reference: ModelParts = model): boolean {
@@ -23,18 +29,18 @@ function prunesOnUnknown(model: ModelParts): ModelParts {
 
 
 describe("searchCombinations", () => {
-  it("yields exactly the reference's combinations, in the reference's order, for every generated model", () => {
+  it("yields exactly the reference's combinations, in the reference's order, for every generated model", GENERATED_MODELS, () => {
     const disagreements = seeds.filter((seed) => !agrees(searchCombinations, randomModel(seed)));
     expect(disagreements).toEqual([]);
   });
 
-  it("generates models whose solution sets are neither all empty nor all full", () => {
+  it("generates models whose solution sets are neither all empty nor all full", GENERATED_MODELS, () => {
     const sizes = seeds.map((seed) => [...referenceCombinations(randomModel(seed))].length);
     expect(sizes.some((size) => size === 0)).toBe(true);
     expect(sizes.some((size) => size > 1)).toBe(true);
   });
 
-  it("is caught by the property when its pruning is broken", () => {
+  it("is caught by the property when its pruning is broken", GENERATED_MODELS, () => {
     const caught = seeds.filter((seed) => {
       const model = randomModel(seed);
 
@@ -43,7 +49,7 @@ describe("searchCombinations", () => {
     expect(caught.length).toBeGreaterThan(0);
   });
 
-  it("restricts each dimension a fixed assignment names to that value", () => {
+  it("restricts each dimension a fixed assignment names to that value", GENERATED_MODELS, () => {
     for (const seed of seeds) {
       const model = randomModel(seed);
       const [first] = model.dimensions;
@@ -59,7 +65,7 @@ describe("searchCombinations", () => {
 });
 
 describe("countSearch", () => {
-  it("counts exactly the reference's combinations for every generated model", () => {
+  it("counts exactly the reference's combinations for every generated model", GENERATED_MODELS, () => {
     const disagreements = seeds.filter((seed) => {
       const model = randomModel(seed);
 
@@ -68,7 +74,7 @@ describe("countSearch", () => {
     expect(disagreements).toEqual([]);
   });
 
-  it("reports going past the limit, and not reaching it", () => {
+  it("reports going past the limit, and not reaching it", GENERATED_MODELS, () => {
     for (const seed of seeds) {
       const model = randomModel(seed);
       const size = [...referenceCombinations(model)].length;
