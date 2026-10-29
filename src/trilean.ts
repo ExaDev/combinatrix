@@ -1,4 +1,4 @@
-import type { ComputedValue, ExpressionNode, FunctionRegistry, PredicateNode, ReferenceNode, Resolution, SyncResolvers } from "trilean";
+import type { ComputedValue, ExpressionNode, FunctionRegistry, JsonValue, PredicateNode, ReferenceNode, Resolution, SyncResolvers } from "trilean";
 import { createSyncEvaluator, emptyFunctionRegistry, PredicateNodeSchema } from "trilean";
 // The released trilean exports its default budgets from this module only; its package entry point re-exports them from the next release on.
 import { DEFAULT_MAX_EVALUATION_NODES, DEFAULT_MAX_NESTING_DEPTH } from "trilean/evaluator-budget";
@@ -6,7 +6,7 @@ import { DEFAULT_MAX_EVALUATION_NODES, DEFAULT_MAX_NESTING_DEPTH } from "trilean
 import type { Condition } from "./condition";
 import type { Constraint, Verdict } from "./constraint";
 import type { Dimension } from "./dimension";
-import { possibleKeys } from "./dimension";
+import { domainOf, possibleKeys } from "./dimension";
 import { UndecidedConstraintError, UnmappableValueError } from "./errors";
 import type { PartialAssignment, Scalar, Value } from "./value";
 import { describeValue, isScalar, valueKey } from "./value";
@@ -121,27 +121,29 @@ export interface TreeNaming {
 }
 
 /**
- * The constraint a tree states over the dimensions, from a tree whose survey found no defects and whose `references` are its dependencies. The tree is bound to one trilean evaluator when the model is defined and reused for every evaluation.
+ * The constraint a tree states over the dimensions, from a tree whose survey found no defects and whose `references` are its dependencies. Everything that does not depend on the assignment is made once, here, when the model is defined: the tree's trilean evaluator, its resolvers, and the set of values each dependency can take. Each evaluation only points the resolvers at its assignment and evaluates, so a compiled form of the tree, when trilean offers one, replaces the one evaluation call.
  *
  * `evaluate` answers `invalid` for an assignment giving a referenced choice or first-valid dimension a value it can never take, which no combination has (only a strategy's own test assignment can supply one), and otherwise runs trilean's synchronous evaluator with each reference resolved from the assignment: a dimension assigned a string, number or boolean resolves to that text, number or boolean; one assigned unset resolves as known absent (`{ found: false }`, so `exists` is definitely false); one not yet assigned resolves as not yet known (`{ found: false, notYetKnown: true }`, so `exists` and everything reading it stays indeterminate until it is assigned, which is what keeps a definite answer the answer on every completion). A definite true is `valid` and a definite false `invalid`. An indeterminate result is `unknown` while some dependency is unassigned, and throws `UndecidedConstraintError`, carrying trilean's reason and the `label`, once every dependency is assigned, since the contract forbids `unknown` there. A computed dimension that produces `null` throws `UnmappableValueError` when it is read.
  */
 export function treeConstraint(tree: Condition, dependencies: readonly string[], byName: ReadonlyMap<string, Dimension>, naming: TreeNaming): Constraint {
   const { label, name } = naming;
   const evaluator = createSyncEvaluator({ functions: emptyFunctionRegistry });
+  const reader = assignmentResolvers();
   const possible = dependencies.map((dependency) => {
     const dimension = byName.get(dependency);
 
-    return dimension === undefined ? undefined : possibleKeys(dimension);
+    return dimension === undefined ? undefined : possibleValues(dimension);
   });
   const evaluate = (assignment: PartialAssignment): Verdict => {
     const impossible = dependencies.some((dependency, index) => {
-      const keys = possible[index];
+      const values = possible[index];
 
-      return keys !== undefined && assignment.has(dependency) && !keys.has(valueKey(assignment.get(dependency)));
+      return values !== undefined && assignment.has(dependency) && !values.has(assignment.get(dependency));
     });
     if (impossible) return "invalid";
 
-    const result = evaluator.evaluatePredicate(tree, undefined, resolversFor(assignment));
+    reader.assignment = assignment;
+    const result = evaluator.evaluatePredicate(tree, undefined, reader.resolvers);
     if (result.status === "definite") return result.value ? "valid" : "invalid";
     if (dependencies.every((dependency) => assignment.has(dependency))) {
       throw new UndecidedConstraintError(label, result.reason);
@@ -281,33 +283,48 @@ function declaredValues(dimension: Dimension): readonly unknown[] {
   return [];
 }
 
-/** Resolvers reading each reference from the assignment. Only `resolveValue` is reachable: the tree was checked to hold no node kind that calls the others. */
-function resolversFor(assignment: PartialAssignment): SyncResolvers {
-  return {
-    resolveValue: (key): Resolution => {
-      if (typeof key !== "string") {
-        throw new Error(
-          `unreachable: every reference key was checked to be a string, not ${JSON.stringify(key)}`,
-        );
-      }
-      if (!assignment.has(key)) return { found: false, notYetKnown: true };
+/** Resolvers made once for a constraint, reading each reference from whichever assignment was last set on the holder: the evaluation is synchronous and never re-enters the constraint, so the one being evaluated is the one set just before it. */
+interface AssignmentResolvers {
+  assignment: PartialAssignment;
+  readonly resolvers: SyncResolvers;
+}
 
-      const value = assignment.get(key);
-      if (value === undefined) return { found: false };
+/** Resolvers reading each reference from the holder's assignment. Only `resolveValue` is reachable: the tree was checked to hold no node kind that calls the others. */
+function assignmentResolvers(): AssignmentResolvers {
+  const reader: AssignmentResolvers = { assignment: new Map(), resolvers: { resolveValue, resolveLookup, resolveCollection } };
 
-      return { found: true, value: computedValueOf(key, value) };
-    },
-    resolveLookup: () => {
-      throw new Error(
-        "unreachable: a tree with a lookup node is refused when the constraint is defined",
-      );
-    },
-    resolveCollection: () => {
-      throw new Error(
-        "unreachable: a tree with a collection node is refused when the constraint is defined",
-      );
-    },
-  };
+  function resolveValue(key: JsonValue): Resolution {
+    const { assignment } = reader;
+    if (typeof key !== "string") {
+      throw new Error(`unreachable: every reference key was checked to be a string, not ${JSON.stringify(key)}`);
+    }
+    if (!assignment.has(key)) return { found: false, notYetKnown: true };
+
+    const value = assignment.get(key);
+    if (value === undefined) return { found: false };
+
+    return { found: true, value: computedValueOf(key, value) };
+  }
+
+  return reader;
+}
+
+function resolveLookup(): never {
+  throw new Error("unreachable: a tree with a lookup node is refused when the constraint is defined");
+}
+
+function resolveCollection(): never {
+  throw new Error("unreachable: a tree with a collection node is refused when the constraint is defined");
+}
+
+/** Every value a choice or first-valid dimension can hold, unset included for a conditional one, or `undefined` for a computed one, whose values are not known ahead. The set's own equality, under which `0` and `-0` are one value, is the one `valueKey` gives a scalar, so a lookup needs no key. */
+function possibleValues(dimension: Dimension): ReadonlySet<Value> | undefined {
+  if (dimension.kind === "computed") return undefined;
+
+  const values = new Set<Value>(domainOf(dimension));
+  if (dimension.activeWhen !== undefined) values.add(undefined);
+
+  return values;
 }
 
 /** A dimension's set value as trilean's value of the same kind: a string is text, a finite number is a number with no unit, a boolean is a boolean. `null` has no counterpart and throws. */
