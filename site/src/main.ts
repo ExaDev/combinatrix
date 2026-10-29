@@ -9,6 +9,7 @@ import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
 import { ModelForm } from "./form";
+import { fillHelp } from "./help";
 import type { JsonObject } from "./json";
 import { DEFAULT_LIST_LIMIT, DEFAULT_STRENGTH, MAX_LIST_LIMIT } from "./limits";
 import type { DimensionSummary, Failure, Request, Response, Result, Row, Verification } from "./protocol";
@@ -570,6 +571,7 @@ async function loadFromLocation(): Promise<boolean> {
 }
 
 function start(): void {
+  fillHelp(document);
   for (const [position, example] of EXAMPLES.entries()) exampleSelect.append(new Option(example.name, String(position)));
   listLimit.value = String(DEFAULT_LIST_LIMIT);
   listLimit.max = String(MAX_LIST_LIMIT);
