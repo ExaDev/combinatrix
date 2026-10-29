@@ -176,6 +176,8 @@ describe("classifyExpression", () => {
   });
 });
 
+const TWELVE = 12;
+
 describe("changing kind", () => {
   it("returns the same node when the kind is unchanged", () => {
     const node = createPredicate("and", NAMES);
@@ -219,6 +221,26 @@ describe("changing kind", () => {
   it("starts a reference on the first dimension, or on an empty key when there is none", () => {
     expect(createExpression("reference", ["first", "second"])).toEqual({ kind: "reference", key: "first" });
     expect(createExpression("reference", [])).toEqual({ kind: "reference", key: "" });
+  });
+
+  it("carries the value of a text, number or boolean literal to another of those kinds where it stays the same value", () => {
+    const text = (value: string): Json => ({ kind: "textLiteral", value });
+    const number = (value: number): Json => ({ kind: "numberLiteral", value });
+    const boolean = (value: boolean): Json => ({ kind: "booleanLiteral", value });
+
+    expect(changeExpressionKind(number(TWELVE), "textLiteral", NAMES)).toEqual(text("12"));
+    expect(changeExpressionKind(text("12"), "numberLiteral", NAMES)).toEqual(number(TWELVE));
+    expect(changeExpressionKind(boolean(true), "textLiteral", NAMES)).toEqual(text("true"));
+    expect(changeExpressionKind(text("false"), "booleanLiteral", NAMES)).toEqual(boolean(false));
+    expect(changeExpressionKind({ kind: "numberLiteral", value: TWELVE, unit: { m: 1 } }, "textLiteral", NAMES)).toEqual(text("12"));
+  });
+
+  it("starts the default of the new kind for a literal whose value would change", () => {
+    expect(changeExpressionKind({ kind: "textLiteral", value: "windows" }, "numberLiteral", NAMES)).toEqual({ kind: "numberLiteral", value: 0 });
+    expect(changeExpressionKind({ kind: "textLiteral", value: " 12" }, "numberLiteral", NAMES)).toEqual({ kind: "numberLiteral", value: 0 });
+    expect(changeExpressionKind({ kind: "textLiteral", value: "yes" }, "booleanLiteral", NAMES)).toEqual({ kind: "booleanLiteral", value: true });
+    expect(changeExpressionKind({ kind: "numberLiteral", value: 1 }, "booleanLiteral", NAMES)).toEqual({ kind: "booleanLiteral", value: true });
+    expect(changeExpressionKind({ kind: "booleanLiteral", value: false }, "numberLiteral", NAMES)).toEqual({ kind: "numberLiteral", value: 0 });
   });
 
   it("changes a raw node to a built one, and every kind to every other without throwing", () => {

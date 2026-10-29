@@ -3,7 +3,7 @@ import type { Scalar } from "combinatrix";
 import type { Choice } from "./dom";
 import { button, h, labelled, select, textInput } from "./dom";
 import type { Direction, Json, JsonObject } from "./json";
-import type { DimensionKind, DimensionView, RuleForm, RuleScope, RuleView, ScalarType } from "./modelEdit";
+import type { DimensionKind, DimensionView, RuleForm, RuleScope, RuleView } from "./modelEdit";
 import {
   addDimension,
   addRule,
@@ -15,16 +15,12 @@ import {
   moveDimension,
   moveRule,
   moveValue,
-  parseNumber,
   removeDimension,
   removeRule,
   removeValue,
   renameDimension,
   RULE_FORM_LABELS,
   RULE_FORMS,
-  scalarType,
-  SCALAR_TYPE_LABELS,
-  SCALAR_TYPES,
   setActiveWhen,
   setDimensionKind,
   setRuleForm,
@@ -33,6 +29,8 @@ import {
   setValue,
   viewOfModel,
 } from "./modelEdit";
+import type { ScalarType } from "./scalars";
+import { parseNumber, SCALAR_TYPE_LABELS, SCALAR_TYPES, scalarType } from "./scalars";
 import type { ItemControls, TreeContext, TreeHost } from "./controls";
 import { choices, fieldId, rawJson, rowButtons } from "./controls";
 import { optionalCondition, predicateNode } from "./treeForm";

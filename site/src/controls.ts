@@ -2,7 +2,8 @@ import type { Choice } from "./dom";
 import { button, h, textInput } from "./dom";
 import type { Direction, Json, JsonObject, JsonStep } from "./json";
 import { parseJson } from "./json";
-import { addListItem, moveListItem, parseNumber, removeListItem, setNode } from "./modelEdit";
+import { addListItem, moveListItem, removeListItem, setNode } from "./modelEdit";
+import { parseNumber } from "./scalars";
 
 /** What the page offers a drawn part of the form for editing the model. */
 export interface TreeHost {

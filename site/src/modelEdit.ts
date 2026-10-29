@@ -5,6 +5,8 @@ import type { Direction, Json, JsonObject, JsonStep, JsonType } from "./json";
 import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, moveEntry, omit, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
 import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
 import { classifyExpression, classifyPredicate, createPredicate } from "./nodes";
+import type { ScalarType } from "./scalars";
+import { convertScalar, isScalar } from "./scalars";
 
 /**
  * The editor's model: the JSON a model is, edited by pure functions that each return a new model. Anything the form has no control for is never touched, so it survives every edit. What the form shows of the model is `viewOfModel`; the library, not these functions, decides whether the result is a valid model.
@@ -37,12 +39,6 @@ export const RULE_FORM_LABELS: Readonly<Record<RuleForm, string>> = {
 /** The condition keys a rule may carry beside its form. */
 export type RuleScope = "when" | "unless";
 
-export type ScalarType = "text" | "number" | "boolean" | "null";
-
-export const SCALAR_TYPES: readonly ScalarType[] = ["text", "number", "boolean", "null"];
-
-export const SCALAR_TYPE_LABELS: Readonly<Record<ScalarType, string>> = { text: "text", number: "number", boolean: "true or false", null: "null" };
-
 /** A dimension the form can edit: a choice or first-valid dimension with exactly the keys the schema defines. */
 export interface DimensionView {
   readonly kind: "dimension";
@@ -70,10 +66,6 @@ export interface ModelView {
   readonly rules: readonly (RuleView | RawView)[] | undefined;
   /** The top-level keys the form does not show, kept as they are. */
   readonly otherKeys: readonly string[];
-}
-
-export function isScalar(value: Json): value is Scalar {
-  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
 function rawOf(json: Json): RawView {
@@ -369,45 +361,7 @@ export function convertValueAt(model: JsonObject, index: number, position: numbe
   return setValue(model, index, position, convertScalar(value, type));
 }
 
-export function scalarType(value: Scalar): ScalarType {
-  if (value === null) return "null";
-  if (typeof value === "string") return "text";
-  if (typeof value === "number") return "number";
-
-  return "boolean";
-}
-
-/** The number a text states, or `undefined` when it states none: finite, and not empty. Negative zero is written as zero, which is what JSON keeps of it. */
-export function parseNumber(text: string): number | undefined {
-  if (text.trim() === "") return undefined;
-  const value = Number(text);
-  if (!Number.isFinite(value)) return undefined;
-
-  return value === 0 ? 0 : value;
-}
-
-/** A value of another type that is the nearest to this one: the text of a number, the number a text states, `true` for text "true" and for any number but zero. */
-export function convertScalar(value: Scalar, type: ScalarType): Scalar {
-  switch (type) {
-    case "text":
-      return value === null ? "" : String(value);
-    case "number":
-      if (typeof value === "number") return value;
-      if (typeof value === "string") return parseNumber(value) ?? 0;
-
-      return value === true ? 1 : 0;
-    case "boolean":
-      if (typeof value === "string") return value === "true";
-
-      return typeof value === "number" ? value !== 0 : value === true;
-    case "null":
-      return null;
-    default:
-      return unreachable(type);
-  }
-}
-
-/** A JSON value of another type that is the nearest to this one: scalars convert as `convertScalar` does, a list or object is kept when it is the type asked for, and a value of any other type becomes an empty one. */
+/** A JSON value of another type that stands for this one: scalars convert as `convertScalar` does, a list or object is kept when it is the type asked for, and a value of any other type starts the type's default (an empty list or object). */
 export function convertJson(value: Json, type: JsonType): Json {
   switch (type) {
     case "text":
