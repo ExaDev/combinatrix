@@ -69,7 +69,7 @@
     "lint": "eslint . --fix --cache --max-warnings 0",
     "lint:check": "eslint . --cache --max-warnings 0",
     "prepare": "husky",
-    "prepublishOnly": "pnpm run lint:check && pnpm run typecheck && pnpm run test && pnpm run build && publint && attw --pack --profile esm-only",
+    "prepublishOnly": "pnpm run lint:check && pnpm run typecheck && pnpm run build && pnpm run test && publint && attw --pack --profile esm-only",
     "release": "semantic-release",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
