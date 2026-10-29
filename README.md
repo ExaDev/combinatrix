@@ -4,7 +4,7 @@
 
 Lazily enumerates every valid combination of option dimensions: a typed set of choices, declarative constraints between them, values derived from the others and dimensions that only matter when another is set, with a stable id for each combination and a reason for each one left out.
 
-It has no runtime dependencies and imports nothing runtime-specific, so it runs in Node, Deno, Bun, workers and browsers alike.
+Its one runtime dependency is [trilean](https://www.npmjs.com/package/trilean), and neither imports anything runtime-specific, so it runs in Node, Deno, Bun, workers and browsers alike.
 
 ```sh
 pnpm add combinatrix
