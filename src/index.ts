@@ -10,12 +10,13 @@ export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelErr
 export type { LimitBound } from "./errors";
 export { explain, explainData } from "./explain";
 export type { DataExplanation, DataReason, ExactRecord, Explanation, Reason } from "./explain";
-export { isCondition, isRule, parseRules } from "./guards";
+export { parseRules } from "./guards";
 export { defineModel } from "./model";
 export type { CombinationOf, Model, ModelDefinition, ModelParts } from "./model";
 export { at, indexOf, indexOfData, samples } from "./rank";
 export type { RandomIndex, SampleOptions } from "./rank";
 export type { Rule, TypedRule } from "./rule";
+export { isCondition, isRule } from "./shape";
 export { full } from "./strategy";
 export type { Strategy, StrategyContext } from "./strategy";
 export { isNonEmpty } from "./value";

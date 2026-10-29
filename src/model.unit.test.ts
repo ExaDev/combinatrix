@@ -56,4 +56,45 @@ describe("defineModel", () => {
     // @ts-expect-error an empty domain is a compile error
     expect(issuesOf({ dimensions: [choice("a", []), choice("a", [1, 1])] })).toEqual(['dimension "a" has no values', 'dimension "a" lists 1 more than once', 'dimension "a" is declared more than once']);
   });
+
+  describe("given data that never met its types", () => {
+    /** Calls `defineModel` as untyped JavaScript would, and returns the issues it refused with. */
+    function issuesOfData(definition: unknown): readonly string[] {
+      try {
+        Reflect.apply(defineModel, undefined, [definition]);
+      } catch (error) {
+        if (error instanceof ModelError) return error.issues;
+        throw error;
+      }
+      throw new Error("the model was accepted");
+    }
+
+    const dimension = { kind: "choice", name: "a", values: [1, 2] };
+
+    it.each<[string, unknown, string]>([
+      ["a definition that is not an object", null, "the model definition is not an object"],
+      ["a misspelt key of the definition", { dimensions: [dimension], rulez: [] }, 'the model definition has the unknown key "rulez"'],
+      ["dimensions that are not a list", { dimensions: dimension }, "the dimensions are not a list"],
+      ["rules that are not a list", { dimensions: [dimension], rules: { requires: { set: "a" } } }, "the rules are not a list"],
+      ["a dimension that is not an object", { dimensions: ["a"] }, "dimension 0 is not an object"],
+      ["a dimension of an unknown kind", { dimensions: [{ ...dimension, kind: "free" }] }, 'dimension 0 has a kind that is not "choice", "first-valid" or "computed"'],
+      ["a misspelt key of a dimension", { dimensions: [{ ...dimension, activeWen: { set: "a" } }] }, 'dimension 0 has the unknown key "activeWen"'],
+      ["the domain key of another kind", { dimensions: [{ kind: "first-valid", name: "a", values: [1] }] }, 'dimension 0 has the unknown key "values"'],
+      ["a name that is not a string", { dimensions: [{ ...dimension, name: 1 }] }, "dimension 0 has a name that is not a string"],
+      ["values that are not a list", { dimensions: [{ ...dimension, values: "ab" }] }, "dimension 0 has values that are not a list"],
+      ["a missing domain", { dimensions: [{ kind: "first-valid", name: "a" }] }, "dimension 0 has candidates that are not a list"],
+      ["an activity condition that is not well formed", { dimensions: [{ ...dimension, activeWhen: { is: ["a", 1, 2] } }] }, "dimension 0 has an activeWhen that is not a well-formed condition"],
+      ["reads that are not names", { dimensions: [{ kind: "computed", name: "a", reads: [1], compute: () => 1 }] }, "dimension 0 has reads that are not a list of names"],
+      ["a compute that is not a function", { dimensions: [{ kind: "computed", name: "a", reads: [], compute: 1 }] }, "dimension 0 has a compute that is not a function"],
+      ["a rule that is not well formed", { dimensions: [dimension], rules: [{ requires: { is: ["a", 1, 2] } }] }, "rule 0 is not a well-formed rule"],
+    ])("refuses %s", (_, definition, issue) => {
+      expect(issuesOfData(definition)).toContain(issue);
+    });
+
+    it("accepts a dimension whose activeWhen is explicitly undefined, as the builders never write one but JavaScript may", () => {
+      expect(() => {
+        Reflect.apply(defineModel, undefined, [{ dimensions: [{ ...dimension, activeWhen: undefined }] }]);
+      }).not.toThrow();
+    });
+  });
 });
