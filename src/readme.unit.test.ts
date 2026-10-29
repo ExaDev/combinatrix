@@ -19,6 +19,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
   "04-derived.ts": async () => import("../examples/04-derived"),
   "05-predicate.ts": async () => import("../examples/05-predicate"),
   "06-advanced.ts": async () => import("../examples/06-advanced"),
+  "07-limit.ts": async () => import("../examples/07-limit"),
+  "08-cancellation.ts": async () => import("../examples/08-cancellation"),
 };
 
 const FILES = Object.keys(LOADERS);
@@ -182,5 +184,18 @@ describe("the advanced example", () => {
     expect(explanation).toContain("expected: 'canary'");
     expect(explanation).toContain("name: 'interceptors need canary or dev'");
     expect(explanation.match(/kind:/gu)).toHaveLength(2);
+  });
+});
+
+describe("the limit example", () => {
+  it("counts the product when the limit equals its size, then refuses a collection one short of it, saying the limit", async () => {
+    const size = OS.length * ARCH.length;
+    expect(await printedOf("07-limit.ts")).toEqual([String(size), `the solution set has more than ${String(size - 1)} combinations`]);
+  });
+});
+
+describe("the cancellation example", () => {
+  it("catches the signal's own reason, and stops the search before it has visited every value", async () => {
+    expect(await printedOf("08-cancellation.ts")).toEqual(["true", "true"]);
   });
 });

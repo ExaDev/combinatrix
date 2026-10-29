@@ -9,12 +9,12 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 18
 */
 
-const [first] = collect(model, { limit: 100 });
+const [first] = collect(model);
 console.log(first?.values);
 /*
 { os: 'linux', arch: 'x64', runtime: undefined }

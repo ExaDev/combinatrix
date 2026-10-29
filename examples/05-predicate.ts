@@ -12,12 +12,12 @@ const model = defineModel({
   ],
 });
 
-console.log(count(model, { limit: 100 }));
+console.log(count(model));
 /*
 2
 */
 
-console.log(diagnose(model, { limit: 100 }));
+console.log(diagnose(model));
 /*
 {
   status: 'satisfiable',
