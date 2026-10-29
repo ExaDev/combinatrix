@@ -3,11 +3,11 @@ import { ModelError } from "./errors";
 import type { Model } from "./model";
 import { defineModel, domainIssues, ruleIssues } from "./model";
 import type { Rule, TypedRule } from "./rule";
-import { isRecord, isRule, modelShapeIssues } from "./shape";
+import { isRecord, isRule, modelShapeIssues, ruleShapeIssues } from "./shape";
 import type { Scalar, Value, ValueRecord } from "./value";
 
 /**
- * Parses rules that arrive as data (parsed JSON, a configuration file) against the dimensions they are for, returning them typed so they can be passed to `defineModel` with no cast. Throws `ModelError` listing every defect: data that is not an array, an element that is not a well-formed rule, a mention of an unknown dimension, and a comparison with a value a dimension can never take. The dimensions' order and the first-valid restriction are checked by `defineModel`, which sees the whole model.
+ * Parses rules that arrive as data (parsed JSON, a configuration file) against the dimensions they are for, returning them typed so they can be passed to `defineModel` with no cast. Throws `ModelError` listing every defect: data that is not an array, an element that is not a well-formed rule (with where each of its trees fails trilean's schema), a mention of an unknown dimension or of one that can take `null`, a node kind an assignment of dimensions cannot resolve, a comparison with a value a dimension can never take or across value kinds, and a rule past trilean's evaluation budget. The dimensions' order and the first-valid restriction are checked by `defineModel`, which sees the whole model.
  */
 export function parseRules<const Ds extends readonly Dimension[]>(dimensions: Ds, data: unknown): TypedRule<TupleOf<Ds>>[] {
   if (!Array.isArray(data)) throw new ModelError(["the rules are not an array"]);
@@ -17,7 +17,7 @@ export function parseRules<const Ds extends readonly Dimension[]>(dimensions: Ds
   const rules: TypedRule<TupleOf<Ds>>[] = [];
   data.forEach((element: unknown, index) => {
     const label = `rule ${String(index)}`;
-    if (!isRule(element)) issues.push(`${label} is not a well-formed rule`);
+    if (!isRule(element)) issues.push(...ruleShapeIssues(element, label));
     else if (fitsDimensions<TupleOf<Ds>>(element, byName)) rules.push(element);
     else issues.push(...ruleIssues(element, byName, label));
   });
@@ -83,7 +83,7 @@ export function isModelData(value: unknown): value is ModelData {
 }
 
 /**
- * Parses a whole model that arrives as data (parsed JSON, a configuration file) and returns it, the untyped route for models as `parseRules` is for rules. Throws `ModelError` listing every defect: first those of the data's shape (`isModelData`), then, once it has the shape, every refusal `defineModel` makes of the model it describes (a repeated name, an activity condition or rule naming an unknown or later dimension, a comparison with a value a dimension can never take, a first-valid dimension constrained together with a later one).
+ * Parses a whole model that arrives as data (parsed JSON, a configuration file) and returns it, the untyped route for models as `parseRules` is for rules. Throws `ModelError` listing every defect: first those of the data's shape (`isModelData`), then, once it has the shape, every refusal `defineModel` makes of the model it describes (a repeated name, an activity condition or rule naming an unknown or later dimension or one that can take `null`, a comparison with a value a dimension can never take or across value kinds, a first-valid dimension constrained together with a later one).
  *
  * The dimension names and values are known only at runtime, so the result is a `Model` of combinations that map every name to a scalar or `undefined`: `defineModel` with literals would type each name and each domain, so that `explain` refuses a misspelt dimension or an impossible value at compile time and `CombinationOf` gives each combination's exact type, where here every record of scalars is accepted by the compiler and checked by `isTuple` and `explainData` at runtime. Unset is not a JSON value: a dimension is unset only where its `activeWhen` does not hold, which is how `defineModel` treats a dimension with no `undefined` in its domain.
  *
@@ -92,7 +92,7 @@ export function isModelData(value: unknown): value is ModelData {
 export function parseModel(data: unknown): Model<ValueRecord> {
   if (!isModelData(data)) throw new ModelError(modelDataIssues(data));
 
-  // Typed as the widest dimension, so a rule may test `unset` and compare with any value, as the data cannot say which dimension is conditional until `defineModel` has checked it.
+  // Typed as the widest dimension, so a rule may test for unset and compare with any value, as the data cannot say which dimension is conditional until `defineModel` has checked it.
   const dimensions: readonly Dimension[] = data.dimensions;
 
   return defineModel(data.rules === undefined ? { dimensions } : { dimensions, rules: data.rules });

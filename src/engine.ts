@@ -1,4 +1,3 @@
-import { evaluateCondition } from "./condition";
 import type { Constraint, Verdict } from "./constraint";
 import type { ComputedDimension, Dimension, FirstValidDimension } from "./dimension";
 import { ConstraintContractError } from "./errors";
@@ -30,20 +29,22 @@ export function combinedVerdict(constraints: readonly Constraint[], assignment: 
   return combined;
 }
 
-/** Whether a dimension is active under the assignment of the dimensions before it. A condition the assignment cannot decide counts as active; that happens only when a dimension it mentions is missing, which is reported on its own. */
-export function isActive(dimension: Dimension, assignment: PartialAssignment): boolean {
-  return dimension.activeWhen === undefined || evaluateCondition(dimension.activeWhen, assignment) !== false;
+/** Whether a step's dimension is active under the assignment of the dimensions before it: where its activity condition is not `invalid`. A condition the assignment cannot decide counts as active; that happens only when a dimension it mentions is missing, which is reported on its own. */
+export function isActive(step: Step, assignment: PartialAssignment): boolean {
+  return step.activity === undefined || verdictOf(step.activity, assignment) !== "invalid";
 }
 
-/** One dimension in enumeration order, with the constraints that mention it. */
+/** One dimension in enumeration order, with the constraints that mention it and the constraint its activity condition states. */
 export interface Step {
   readonly dimension: Dimension;
   readonly constraints: readonly Constraint[];
+  /** Valid where the dimension is active; `undefined` for a dimension that is always active. */
+  readonly activity: Constraint | undefined;
 }
 
-/** A model's dimensions in enumeration order, each with the constraints that mention it. */
+/** A model's dimensions in enumeration order, each with the constraints that mention it and its activity. */
 export function stepsOf(model: ModelParts): Step[] {
-  return model.dimensions.map((dimension) => ({ dimension, constraints: model.constraints.filter((constraint) => constraint.dependencies.includes(dimension.name)) }));
+  return model.dimensions.map((dimension, index) => ({ dimension, constraints: model.constraints.filter((constraint) => constraint.dependencies.includes(dimension.name)), activity: model.activity[index] }));
 }
 
 /** The constraints that mention no dimension, so no step checks them. */

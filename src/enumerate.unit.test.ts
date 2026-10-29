@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { CombinationOf, Constraint, Strategy } from "./index";
-import { choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, explainData, firstValid, full, isNonEmpty, LimitExceededError, predicate, StrategyError } from "./index";
+import { allOf, choice, collect, combinations, ConstraintContractError, count, defineModel, diagnose, explain, explainData, firstValid, full, is, isNonEmpty, isSet, LimitExceededError, predicate, StrategyError } from "./index";
 
 const SIDE = 3;
 const DIMENSION_COUNT = 4;
@@ -79,7 +79,7 @@ describe("combinations", () => {
   });
 
   it("gives a strategy the dimensions, constraints, a three-valued test and the completions of a partial assignment", () => {
-    const model = defineModel({ dimensions: [choice("a", [1, 2]), choice("b", [1, 2])], rules: [{ excludes: { all: [{ is: ["a", 1] }, { is: ["b", 1] }] } }] });
+    const model = defineModel({ dimensions: [choice("a", [1, 2]), choice("b", [1, 2])], rules: [{ excludes: allOf(is("a", 1), is("b", 1)) }] });
     const firstPerA: Strategy = {
       name: "first per a",
       select: (context) => {
@@ -142,20 +142,20 @@ describe("count", () => {
   it("counts an empty solution set as zero, including one emptied by a constraint on no dimension", () => {
     const never: Constraint = { dependencies: [], evaluate: () => "invalid" };
     expect(count(defineModel({ dimensions: cube.dimensions, constraints: [never] }), { limit: 0 })).toBe(0);
-    expect(count(defineModel({ dimensions: [choice("a", [1])], rules: [{ excludes: { is: ["a", 1] } }] }), { limit: 0 })).toBe(0);
+    expect(count(defineModel({ dimensions: [choice("a", [1])], rules: [{ excludes: is("a", 1) }] }), { limit: 0 })).toBe(0);
   });
 });
 
 describe("diagnose", () => {
   it("reports an empty solution set distinctly", () => {
-    const model = defineModel({ dimensions: [choice("a", [1, 2])], rules: [{ excludes: { set: "a" } }] });
+    const model = defineModel({ dimensions: [choice("a", [1, 2])], rules: [{ excludes: isSet("a") }] });
     expect(diagnose(model, { limit: 1 })).toEqual({ status: "empty" });
   });
 
   it("reports the values no combination takes, candidates included", () => {
     const model = defineModel({
       dimensions: [choice("a", ["one", "two", "three"]), choice("b", ["x", "y"]), firstValid("c", ["low", "high", "never"])],
-      rules: [{ excludes: { is: ["a", "three"] } }, { requires: { is: ["b", "x"] }, when: { is: ["a", "two"] } }, { requires: { is: ["c", "high"] }, when: { is: ["b", "y"] } }],
+      rules: [{ excludes: is("a", "three") }, { requires: is("b", "x"), when: is("a", "two") }, { requires: is("c", "high"), when: is("b", "y") }],
     });
     const solutions = 3;
     expect(diagnose(model, { limit: solutions })).toEqual({
@@ -183,8 +183,8 @@ describe("diagnose without a limit", () => {
 
 describe("explain", () => {
   const model = defineModel({
-    dimensions: [choice("a", [1, 2]), choice("b", [undefined, "x"], { activeWhen: { is: ["a", 2] } }), firstValid("c", ["low", "high"])],
-    rules: [{ name: "two needs high", requires: { is: ["c", "high"] }, when: { is: ["a", 2] } }],
+    dimensions: [choice("a", [1, 2]), choice("b", [undefined, "x"], { activeWhen: is("a", 2) }), firstValid("c", ["low", "high"])],
+    rules: [{ name: "two needs high", requires: is("c", "high"), when: is("a", 2) }],
     constraints: [predicate({ name: "not x", reads: ["b"], test: ({ b }) => b !== "x" })],
   });
 
@@ -210,7 +210,7 @@ describe("explain", () => {
   });
 
   it("reports an active conditional dimension left unset when its values do not list unset, as a value outside its domain", () => {
-    const conditional = defineModel({ dimensions: [choice("a", [1, 2]), choice("b", ["x", "y"], { activeWhen: { is: ["a", 2] } })] });
+    const conditional = defineModel({ dimensions: [choice("a", [1, 2]), choice("b", ["x", "y"], { activeWhen: is("a", 2) })] });
     expect(explain(conditional, { a: 2, b: undefined })).toEqual({ valid: false, reasons: [{ kind: "outside-domain", dimension: "b", value: undefined }] });
     expect(explain(conditional, { a: 1, b: undefined }).valid).toBe(true);
     const unsetWhileActive: Strategy = { name: "unset while active", select: () => [{ a: 2, b: undefined }] };
@@ -218,7 +218,7 @@ describe("explain", () => {
   });
 
   it("reports a first-valid dimension with no acceptable candidate, and the constraint the given candidate breaks", () => {
-    const stuck = defineModel({ dimensions: [choice("a", [1]), firstValid("c", ["low"])], rules: [{ excludes: { is: ["c", "low"] } }] });
+    const stuck = defineModel({ dimensions: [choice("a", [1]), firstValid("c", ["low"])], rules: [{ excludes: is("c", "low") }] });
     expect(explain(stuck, { a: 1, c: "low" })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }, { kind: "constraint", index: 0, constraint: stuck.constraints[0], rule: stuck.rules[0] }] });
     expect(explainData(stuck, { a: 1 })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }] });
   });
@@ -239,8 +239,8 @@ describe("explain", () => {
 
 describe("explainData", () => {
   const model = defineModel({
-    dimensions: [choice("a", [1, 2]), choice("b", [undefined, "x"], { activeWhen: { is: ["a", 2] } }), firstValid("c", ["low", "high"])],
-    rules: [{ name: "two needs high", requires: { is: ["c", "high"] }, when: { is: ["a", 2] } }],
+    dimensions: [choice("a", [1, 2]), choice("b", [undefined, "x"], { activeWhen: is("a", 2) }), firstValid("c", ["low", "high"])],
+    rules: [{ name: "two needs high", requires: is("c", "high"), when: is("a", 2) }],
     constraints: [predicate({ name: "not x", reads: ["b"], test: ({ b }) => b !== "x" })],
   });
 

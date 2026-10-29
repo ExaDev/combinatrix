@@ -4,8 +4,7 @@ import { join } from "node:path";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import type { Condition } from "../src/condition";
-import { choice, defineModel, firstValid, isCondition, isRule, parseRules } from "../src/index";
+import { choice, collect, defineModel, firstValid, isCondition, isRule, isSet, parseRules } from "../src/index";
 import type { Rule } from "../src/rule";
 import type { Scalar } from "../src/value";
 import { valueKey } from "../src/value";
@@ -17,24 +16,52 @@ import { PACKAGE_VERSION } from "./json-schema";
  * The published JSON Schema and the runtime guards describe the same data, so they must accept and refuse the same values. Each property draws seeded random values from the shape the schema describes and near misses of them (a valid value with one node removed, retyped, wrapped, extended or given an unknown key), and requires the guard and a JSON Schema validator to agree on every one. The schema is converted in process, so the suite needs no prior build.
  */
 
-/** The dimensions `parseRules` is given below, with the values each can take, unset included for the one with an activity condition. */
+/** The dimensions `parseRules` is given below, with the values each can take, unset included for the one with an activity condition. `b` can take `null`, which has no trilean value, so no condition may read it. */
 const DOMAINS: ReadonlyMap<string, readonly (Scalar | undefined)[]> = new Map([
   ["a", ["x", "y"]],
   ["b", [true, null]],
   ["c", ["y", undefined]],
 ]);
 
-/** Whether a well-formed condition mentions only the dimensions above and compares each with a value it can take: the part of `parseRules` that is about the model, written here independently of the library. */
-function fitsDomains(operand: Condition): boolean {
-  const takes = (dimension: string, value: Scalar | undefined): boolean => DOMAINS.get(dimension)?.some((candidate) => valueKey(candidate) === valueKey(value)) ?? false;
-  if ("is" in operand) return takes(operand.is[0], operand.is[1]);
-  if ("in" in operand) return DOMAINS.has(operand.in[0]) && operand.in[1].every((value) => takes(operand.in[0], value));
-  if ("unset" in operand) return takes(operand.unset, undefined);
-  if ("set" in operand) return DOMAINS.has(operand.set);
-  if ("all" in operand) return operand.all.every(fitsDomains);
-  if ("any" in operand) return operand.any.every(fitsDomains);
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  return fitsDomains(operand.not);
+/** The dimension a node references directly, if it is a reference by a string key. */
+function referenced(node: unknown): string | undefined {
+  return isObject(node) && node["kind"] === "reference" && typeof node["key"] === "string" ? node["key"] : undefined;
+}
+
+/** The scalar a literal node states, if it is one. */
+function literalOf(node: unknown): { readonly value: Scalar } | undefined {
+  if (!isObject(node) || !["textLiteral", "numberLiteral", "booleanLiteral"].includes(String(node["kind"]))) return undefined;
+
+  const { value } = node;
+
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? { value } : undefined;
+}
+
+/**
+ * Whether a well-formed condition reads only the dimensions above, never one that can take `null`, and compares each by membership only with values it can take and of the kind it takes: the part of `parseRules` that is about the model, written here independently of the library, over every node of the tree.
+ */
+function fitsDomains(node: unknown): boolean {
+  if (Array.isArray(node)) return node.every(fitsDomains);
+  if (!isObject(node)) return true;
+
+  const takes = (dimension: string, value: Scalar | undefined): boolean => DOMAINS.get(dimension)?.some((candidate) => valueKey(candidate) === valueKey(value)) ?? false;
+  if (node["kind"] === "reference") {
+    const domain = typeof node["key"] === "string" ? DOMAINS.get(node["key"]) : undefined;
+
+    return domain !== undefined && !domain.includes(null);
+  }
+  const member = node["kind"] === "memberOf" ? referenced(node["operand"]) : undefined;
+  if (member !== undefined && Array.isArray(node["candidates"])) {
+    const values = node["candidates"].map(literalOf).filter((literal) => literal !== undefined);
+    const kinds = new Set([...(DOMAINS.get(member) ?? []), ...values.map(({ value }) => value)].filter((value) => value !== undefined).map((value) => typeof value));
+    if (kinds.size > 1 || !values.every(({ value }) => takes(member, value))) return false;
+  }
+
+  return Object.values(node).every(fitsDomains);
 }
 
 function ruleFitsDomains(candidate: Rule): boolean {
@@ -45,7 +72,7 @@ function ruleFitsDomains(candidate: Rule): boolean {
 
 describe("the JSON Schema and the runtime guards", () => {
   it("agree on every condition and near miss", () => {
-    expectAgreement(condition, isCondition, accepts("Condition"));
+    expectAgreement(condition, isCondition, accepts("PredicateNode"));
   });
 
   it("agree on every rule and near miss", () => {
@@ -57,7 +84,7 @@ describe("the JSON Schema and the runtime guards", () => {
   });
 
   it("agree on a list of rules with `parseRules`, which refuses what the schema refuses and, of what the schema accepts, exactly what names a dimension or value the model lacks", () => {
-    const dimensions = [choice("a", ["x", "y"]), choice("b", [true, null]), firstValid("c", ["y"], { activeWhen: { set: "a" } })] as const;
+    const dimensions = [choice("a", ["x", "y"]), choice("b", [true, null]), firstValid("c", ["y"], { activeWhen: isSet("a") })] as const;
     const known: Mentionable[] = [
       { name: "a", domain: ["x", "y"], unsettable: false },
       { name: "b", domain: [true, null], unsettable: false },
@@ -109,7 +136,7 @@ describe("the JSON Schema and the runtime guards", () => {
 
   it("accept at the root exactly what one of the four definitions accepts", () => {
     const root = accepts(undefined);
-    const definitions = [accepts("Model"), accepts("Rules"), accepts("Rule"), accepts("Condition")];
+    const definitions = [accepts("Model"), accepts("Rules"), accepts("Rule"), accepts("PredicateNode")];
     const anything = fc.oneof(condition, rule, rules, model, nearMiss(fc.oneof(condition, rule, rules, model)).map(({ value }) => value), fc.jsonValue());
     fc.assert(
       fc.property(anything, (value) => {
@@ -128,10 +155,10 @@ describe("the JSON Schema document", () => {
     expect(schema.description).toContain("predicates");
   });
 
-  it("describes the recursion of a condition with a reference to its own definition", () => {
+  it("describes a condition as trilean's predicate tree, under trilean's names, with a reference to its own definition for the recursion", () => {
     const text = JSON.stringify(schema);
-    expect(text).toContain('"$ref":"#/$defs/Condition"');
-    expect(Object.keys(schema.$defs ?? {}).sort()).toEqual(["ChoiceDimension", "Condition", "FirstValidDimension", "Model", "Rule", "Rules", "Scalar"]);
+    expect(text).toContain('"$ref":"#/$defs/PredicateNode"');
+    expect(Object.keys(schema.$defs ?? {}).sort()).toEqual(["ChoiceDimension", "ExpressionNode", "FirstValidDimension", "JsonValue", "Model", "PredicateNode", "Rule", "Rules", "Scalar"]);
   });
 
   it("describes every definition", () => {
@@ -160,7 +187,9 @@ describe("the README's rules file", () => {
 
   it("is valid against the schema, and `parseRules` accepts it for the dimensions it is written for", () => {
     expect(accepts("Rules")(example)).toBe(true);
-    const dimensions = [choice("os", ["linux", "macos", "windows"]), choice("arch", ["x64", "arm64"]), choice("runtime", ["node", "bun"])] as const;
-    expect(() => defineModel({ dimensions, rules: parseRules(dimensions, example) })).not.toThrow();
+    const dimensions = [choice("os", ["linux", "macos", "windows"]), choice("arch", ["x64", "arm64"]), choice("runtime", [undefined, "node", "bun"])] as const;
+    const constrained = collect(defineModel({ dimensions, rules: parseRules(dimensions, example) })).map(({ values }) => values);
+    expect(constrained).toContainEqual({ os: "windows", arch: "arm64", runtime: "node" });
+    expect(constrained).not.toContainEqual({ os: "windows", arch: "x64", runtime: "bun" });
   });
 });

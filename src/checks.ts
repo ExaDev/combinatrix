@@ -1,34 +1,14 @@
-import type { TypedCondition } from "./condition";
+import type { MentionsOf, TypedCondition } from "./condition";
 import type { Constraint } from "./constraint";
 import type { Dimension, TupleOf } from "./dimension";
 import type { Value } from "./value";
 
 /**
- * Compile-time counterparts of the checks `defineModel` makes at runtime, over the literal types of a definition written in code. Each yields a union of messages, `never` when there is nothing to report. A part whose type is not literal (a name typed `string`, a condition typed `Condition`, a rule typed `TypedRule<T>`) is data whose content the compiler cannot see, so it yields nothing and is left to the runtime checks.
+ * Compile-time counterparts of the checks `defineModel` makes at runtime, over the literal types of a definition written in code. Each yields a union of messages, `never` when there is nothing to report. A part whose type is not literal (a name typed `string`, a condition typed `Condition` that records no mentions, a rule typed `TypedRule<T>`) is data whose content the compiler cannot see, so it yields nothing and is left to the runtime checks.
  */
 
-/** Whether a condition type is wide, such as `Condition` or `TypedCondition<T>`, rather than the literal type of one condition: only a wide type admits an `all` of any length. */
-type IsWide<C> = { readonly all: readonly never[] } extends C ? true : false;
-
-/** The dimension names a condition type mentions, or `string` when any of it is wide. */
-export type MentionedNames<C> =
-  IsWide<C> extends true
-    ? string
-    : C extends { readonly is: readonly [infer N extends string, unknown] }
-      ? N
-      : C extends { readonly in: readonly [infer N extends string, unknown] }
-        ? N
-        : C extends { readonly set: infer N extends string }
-          ? N
-          : C extends { readonly unset: infer N extends string }
-            ? N
-            : C extends { readonly all: readonly (infer S)[] }
-              ? MentionedNames<S>
-              : C extends { readonly any: readonly (infer S)[] }
-                ? MentionedNames<S>
-                : C extends { readonly not: infer S }
-                  ? MentionedNames<S>
-                  : never;
+/** The dimension names a condition type records as mentioned (see `ConditionOf`), or `string` when it records a wide mention, as `TypedCondition` over plain string keys does. A condition recording none, such as a bare `Condition` from JSON, yields `never`, so it adds no compile-time defect and is checked at runtime. */
+export type MentionedNames<C> = MentionsOf<C>["dimension"];
 
 /** The defect in a dimension's activity condition against the combination type `Before` of the dimensions declared before it. */
 type ActivityDefect<H extends Dimension, Before extends Readonly<Record<string, Value>>> =

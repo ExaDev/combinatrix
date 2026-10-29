@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { choice, collect, count, defineModel, diagnose, explain, firstValid } from "./index";
+import { anyOf, choice, collect, count, defineModel, diagnose, explain, firstValid, is, isSet, oneOf } from "./index";
 
 /**
  * A fixture shaped like a proxy's measurement matrix: an optimisation mode, a keep-ratio, a retrieval mode and two experimental features, each feature unlocked only by some release channels, with the channel derived as the least one that unlocks what is enabled. Everything here goes through the public API; the expected solution set is computed independently by plain loops.
@@ -24,11 +24,11 @@ const model = defineModel({
     choice("interceptToolResults", SWITCH),
     choice("readMaturation", SWITCH),
     // The channel only gates the two features, so it takes part only when one is enabled; otherwise it is unset and never a second copy of the same settings.
-    firstValid("rolloutChannel", CHANNELS, { activeWhen: { any: [{ set: "interceptToolResults" }, { set: "readMaturation" }] } }),
+    firstValid("rolloutChannel", CHANNELS, { activeWhen: anyOf(isSet("interceptToolResults"), isSet("readMaturation")) }),
   ],
   rules: [
-    { name: "interceptors need canary or dev", requires: { in: ["rolloutChannel", ["canary", "dev"]] }, when: { is: ["interceptToolResults", true] } },
-    { name: "read maturation needs beta or dev", requires: { in: ["rolloutChannel", ["beta", "dev"]] }, when: { is: ["readMaturation", true] } },
+    { name: "interceptors need canary or dev", requires: oneOf("rolloutChannel", ["canary", "dev"]), when: is("interceptToolResults", true) },
+    { name: "read maturation needs beta or dev", requires: oneOf("rolloutChannel", ["beta", "dev"]), when: is("readMaturation", true) },
   ],
 });
 

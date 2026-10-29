@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Dimension, ModelDefinition } from "./index";
-import { choice, computed, defineModel, firstValid, ModelError, predicate, sampled } from "./index";
+import { choice, computed, defineModel, firstValid, is, isSet, ModelError, oneOf, predicate, sampled } from "./index";
 
 function issuesOf<Ds extends readonly Dimension[]>(definition: ModelDefinition<Ds>): readonly string[] {
   try {
@@ -15,7 +15,7 @@ function issuesOf<Ds extends readonly Dimension[]>(definition: ModelDefinition<D
 
 describe("defineModel", () => {
   it("accepts a model and exposes its constraints, rules first", () => {
-    const rule = { requires: { set: "a" } } as const;
+    const rule = { requires: isSet("a") } as const;
     const custom = predicate({ reads: ["a"], test: () => true });
     const model = defineModel({ dimensions: [choice("a", [undefined, 1])], rules: [rule], constraints: [custom] });
     expect(model.constraints).toHaveLength(2);
@@ -38,14 +38,14 @@ describe("defineModel", () => {
     ["a repeated value", { dimensions: [choice("a", [1, 1])] }, 'dimension "a" lists 1 more than once'],
     ["a non-finite number", { dimensions: [sampled("a", () => [Number.POSITIVE_INFINITY])] }, 'dimension "a" has value Infinity, which is not a JSON scalar'],
     ["a computed dimension reading a later one", { dimensions: [computed("a", { reads: ["b"], compute: () => 1 }), choice("b", [1])] }, 'dimension "a" reads "b", which is not a dimension declared before it'],
-    ["activity depending on a later dimension", { dimensions: [choice("a", [1], { activeWhen: { set: "b" } }), choice("b", [1])] }, 'dimension "a" is active depending on "b", which is not a dimension declared before it'],
-    ["activity comparing with an impossible value", { dimensions: [choice("a", [1]), choice("b", [1], { activeWhen: { is: ["a", 2] } })] }, 'the activity of dimension "b" compares "a" with 2, which it can never take'],
-    ["a rule on an unknown dimension", { dimensions: [choice("a", [1])], rules: [{ requires: { set: "z" } }] }, 'rule 0 mentions unknown dimension "z"'],
-    ["a rule comparing with an impossible value", { dimensions: [choice("a", [1])], rules: [{ requires: { in: ["a", [1, "one"]] } }] }, 'rule 0 compares "a" with "one", which it can never take'],
+    ["activity depending on a later dimension", { dimensions: [choice("a", [1], { activeWhen: isSet("b") }), choice("b", [1])] }, 'dimension "a" is active depending on "b", which is not a dimension declared before it'],
+    ["activity comparing with an impossible value", { dimensions: [choice("a", [1]), choice("b", [1], { activeWhen: is("a", 2) })] }, 'the activity of dimension "b" at $.right: compares "a" with 2, which it can never take'],
+    ["a rule on an unknown dimension", { dimensions: [choice("a", [1])], rules: [{ requires: isSet("z") }] }, 'rule 0 at $.operand: mentions unknown dimension "z"'],
+    ["a rule comparing with an impossible value", { dimensions: [choice("a", [1])], rules: [{ requires: oneOf("a", [1, "one"]) }] }, 'rule 0 at $.right: compares "a" with "one", which it can never take'],
     ["a constraint on an unknown dimension", { dimensions: [choice("a", [1])], constraints: [predicate({ reads: ["z"], test: () => true })] }, 'constraint 0 depends on unknown dimension "z"'],
     [
       "a first-valid dimension constrained with a later one",
-      { dimensions: [firstValid("a", [1]), choice("b", [1])], rules: [{ requires: { is: ["a", 1] }, when: { set: "b" } }] },
+      { dimensions: [firstValid("a", [1]), choice("b", [1])], rules: [{ requires: is("a", 1), when: isSet("b") }] },
       'constraint 0 mentions first-valid dimension "a" and "b" declared after it, so its candidate could not be chosen from earlier values alone',
     ],
   ])("refuses %s", (_, definition, issue) => {
@@ -75,10 +75,10 @@ describe("defineModel", () => {
       ["a definition that is not an object", null, "the model definition is not an object"],
       ["a misspelt key of the definition", { dimensions: [dimension], rulez: [] }, 'the model definition has the unknown key "rulez"'],
       ["dimensions that are not a list", { dimensions: dimension }, "the dimensions are not a list"],
-      ["rules that are not a list", { dimensions: [dimension], rules: { requires: { set: "a" } } }, "the rules are not a list"],
+      ["rules that are not a list", { dimensions: [dimension], rules: { requires: isSet("a") } }, "the rules are not a list"],
       ["a dimension that is not an object", { dimensions: ["a"] }, "dimension 0 is not an object"],
       ["a dimension of an unknown kind", { dimensions: [{ ...dimension, kind: "free" }] }, 'dimension 0 has a kind that is not "choice", "first-valid" or "computed"'],
-      ["a misspelt key of a dimension", { dimensions: [{ ...dimension, activeWen: { set: "a" } }] }, 'dimension 0 has the unknown key "activeWen"'],
+      ["a misspelt key of a dimension", { dimensions: [{ ...dimension, activeWen: isSet("a") }] }, 'dimension 0 has the unknown key "activeWen"'],
       ["the domain key of another kind", { dimensions: [{ kind: "first-valid", name: "a", values: [1] }] }, 'dimension 0 has the unknown key "values"'],
       ["a name that is not a string", { dimensions: [{ ...dimension, name: 1 }] }, "dimension 0 has a name that is not a string"],
       ["values that are not a list", { dimensions: [{ ...dimension, values: "ab" }] }, "dimension 0 has values that are not a list"],
@@ -86,7 +86,7 @@ describe("defineModel", () => {
       ["an activity condition that is not well formed", { dimensions: [{ ...dimension, activeWhen: { is: ["a", 1, 2] } }] }, "dimension 0 has an activeWhen that is not a well-formed condition"],
       ["reads that are not names", { dimensions: [{ kind: "computed", name: "a", reads: [1], compute: () => 1 }] }, "dimension 0 has reads that are not a list of names"],
       ["a compute that is not a function", { dimensions: [{ kind: "computed", name: "a", reads: [], compute: 1 }] }, "dimension 0 has a compute that is not a function"],
-      ["a rule that is not well formed", { dimensions: [dimension], rules: [{ requires: { is: ["a", 1, 2] } }] }, "rule 0 is not a well-formed rule"],
+      ["a rule that is not well formed", { dimensions: [dimension], rules: [{ requires: { kind: "exists" } }] }, "rule 0 is not a well-formed rule"],
       ["an object as a value", { dimensions: [{ kind: "choice", name: "a", values: [{ nested: true }] }] }, 'dimension "a" has a value of type object, which is not a JSON scalar'],
       ["a list as a value", { dimensions: [{ kind: "choice", name: "a", values: [[1]] }] }, 'dimension "a" has a value of type array, which is not a JSON scalar'],
     ])("refuses %s", (_, definition, issue) => {

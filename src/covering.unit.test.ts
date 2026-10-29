@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { greedyCoveringArray } from "../test/greedy-reference";
 import { randomModel, seeds } from "../test/random-model";
 import type { Model, Strategy, Value } from "./index";
-import { choice, collect, count, coveringArray, defineModel, firstValid, isCoveringArray, LimitExceededError, StrategyError } from "./index";
+import { allOf, choice, collect, count, coveringArray, defineModel, firstValid, is, isCoveringArray, isSet, LimitExceededError, StrategyError } from "./index";
 import { subsetsOf, tupleKey } from "./tuples";
 
 /** How many generated models each property is checked against. */
@@ -75,7 +75,7 @@ describe("coveringArray", () => {
   it("does not require a tuple no valid combination contains", () => {
     const model = defineModel({
       dimensions: [choice("a", [1, 2]), choice("b", ["x", "y"])],
-      rules: [{ excludes: { all: [{ is: ["a", 1] }, { is: ["b", "y"] }] } }],
+      rules: [{ excludes: allOf(is("a", 1), is("b", "y")) }],
     });
     const rows = rowsOf(model, coveringArray({ strength: 2, limit: LIMIT }));
     expect(rows).toEqual([
@@ -89,11 +89,11 @@ describe("coveringArray", () => {
     const model = defineModel({
       dimensions: [
         choice("feature", [undefined, "on"]),
-        choice("tuning", [1, 2], { activeWhen: { set: "feature" } }),
+        choice("tuning", [1, 2], { activeWhen: isSet("feature") }),
         firstValid("channel", ["stable", "beta"]),
       ],
       rules: [
-        { requires: { is: ["channel", "beta"] }, when: { is: ["tuning", 2] } },
+        { requires: is("channel", "beta"), when: is("tuning", 2) },
       ],
     });
     const rows = rowsOf(model, coveringArray({ strength: 2, limit: LIMIT }));
@@ -111,7 +111,7 @@ describe("coveringArray", () => {
   it("yields nothing for an empty solution set", () => {
     const model = defineModel({
       dimensions: [choice("a", [1])],
-      rules: [{ excludes: { is: ["a", 1] } }],
+      rules: [{ excludes: is("a", 1) }],
     });
     expect(rowsOf(model, coveringArray({ strength: 2, limit: LIMIT }))).toEqual(
       [],
@@ -301,7 +301,7 @@ describe("coveringArray against the isCoveringArray oracle", () => {
   it("the oracle refuses a row outside the solution set, and combinatrix refuses a strategy yielding one", () => {
     const model = defineModel({
       dimensions: [choice("a", [1, 2]), choice("b", ["x", "y"])],
-      rules: [{ excludes: { all: [{ is: ["a", 1] }, { is: ["b", "y"] }] } }],
+      rules: [{ excludes: allOf(is("a", 1), is("b", "y")) }],
     });
     const rows = rowsOf(model, coveringArray({ strength: 2, limit: LIMIT }));
     const invalid = { a: 1, b: "y" };

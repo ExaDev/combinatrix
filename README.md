@@ -4,7 +4,7 @@
 
 Lazily enumerates every valid combination of option dimensions: a typed set of choices, declarative constraints between them, values derived from the others and dimensions that only matter when another is set, with a stable id for each combination and a reason for each one left out.
 
-Its one runtime dependency is [trilean](https://www.npmjs.com/package/trilean), and neither imports anything runtime-specific, so it runs in Node, Deno, Bun, workers and browsers alike.
+Its one runtime dependency is [trilean](https://www.npmjs.com/package/trilean), whose predicate trees are its constraint language, and neither imports anything runtime-specific, so it runs in Node, Deno, Bun, workers and browsers alike.
 
 ```sh
 pnpm add combinatrix
@@ -81,11 +81,11 @@ console.log(first?.values);
 */
 ```
 
-A rule removes combinations. This one excludes the Windows combinations, but only when the runtime is `bun` (`requires` states what must hold instead, and `implies` links two conditions). `explain` takes a combination of the model (a misspelt dimension or a value outside a domain does not compile; `explainData` takes untyped data) and says whether it is in the solution set, and if not, why: `constraint` is the compiled constraint and `rule` is the rule as written.
+A rule removes combinations. This one excludes the Windows combinations, but only when the runtime is `bun` (`requires` states what must hold instead, and `implies` links two conditions). Its conditions are written with builders such as `is`, which check the dimension and the value against the model at compile time and return a trilean predicate tree: plain JSON, printed at the end. `explain` takes a combination of the model (a misspelt dimension or a value outside a domain does not compile; `explainData` takes untyped data) and says whether it is in the solution set, and if not, why: `constraint` is the compiled constraint and `rule` is the rule as written.
 
 ```ts
 // examples/03-rules.ts
-import { choice, count, defineModel, explain } from "combinatrix";
+import { choice, count, defineModel, explain, is } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -93,7 +93,7 @@ const model = defineModel({
     choice("arch", ["x64", "arm64"]),
     choice("runtime", [undefined, "node", "bun"]),
   ],
-  rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
+  rules: [{ name: "bun is not offered on windows", excludes: is("os", "windows"), when: is("runtime", "bun") }],
 });
 
 console.log(count(model));
@@ -101,7 +101,7 @@ console.log(count(model));
 16
 */
 
-console.dir(explain(model, { os: "windows", arch: "x64", runtime: "bun" }), { depth: null });
+console.dir(explain(model, { os: "windows", arch: "x64", runtime: "bun" }), { depth: 4 });
 /*
 {
   valid: false,
@@ -116,12 +116,18 @@ console.dir(explain(model, { os: "windows", arch: "x64", runtime: "bun" }), { de
       },
       rule: {
         name: 'bun is not offered on windows',
-        excludes: { is: [ 'os', 'windows' ] },
-        when: { is: [ 'runtime', 'bun' ] }
+        excludes: { kind: 'and', left: [Object], right: [Object] },
+        when: { kind: 'and', left: [Object], right: [Object] }
       }
     }
   ]
 }
+*/
+
+// A condition is a trilean predicate tree, plain JSON: the dimension is set, and is one of the values.
+console.log(JSON.stringify(is("os", "windows")));
+/*
+{"kind":"and","left":{"kind":"exists","operand":{"kind":"reference","key":"os"}},"right":{"kind":"memberOf","op":"in","operand":{"kind":"reference","key":"os"},"candidates":[{"kind":"textLiteral","value":"windows"}]}}
 */
 ```
 
@@ -129,16 +135,16 @@ console.dir(explain(model, { os: "windows", arch: "x64", runtime: "bun" }), { de
 
 ```ts
 // examples/04-derived.ts
-import { choice, collect, defineModel, firstValid } from "combinatrix";
+import { choice, collect, defineModel, firstValid, is, isSet } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
     choice("os", ["linux", "windows"]),
     choice("compress", [undefined, true]),
     // The preferred codec first; the one chosen is the first that no rule rejects.
-    firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: { set: "compress" } }),
+    firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: isSet("compress") }),
   ],
-  rules: [{ name: "windows has no zstd", excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
+  rules: [{ name: "windows has no zstd", excludes: is("codec", "zstd"), when: is("os", "windows") }],
 });
 
 for (const { values } of collect(model)) console.log(values);
@@ -186,7 +192,7 @@ The last example puts all of it together in the shape of a measurement matrix: u
 
 ```ts
 // examples/06-advanced.ts
-import { choice, count, defineModel, explain, firstValid } from "combinatrix";
+import { anyOf, choice, count, defineModel, explain, firstValid, is, isSet, oneOf } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -195,11 +201,11 @@ const model = defineModel({
     choice("interceptors", [undefined, true]),
     choice("maturation", [undefined, true]),
     // Only needed when a feature is on, then the least channel that unlocks it.
-    firstValid("channel", [undefined, "beta", "canary", "dev"], { activeWhen: { any: [{ set: "interceptors" }, { set: "maturation" }] } }),
+    firstValid("channel", [undefined, "beta", "canary", "dev"], { activeWhen: anyOf(isSet("interceptors"), isSet("maturation")) }),
   ],
   rules: [
-    { name: "interceptors need canary or dev", requires: { in: ["channel", ["canary", "dev"]] }, when: { is: ["interceptors", true] } },
-    { name: "maturation needs beta or dev", requires: { in: ["channel", ["beta", "dev"]] }, when: { is: ["maturation", true] } },
+    { name: "interceptors need canary or dev", requires: oneOf("channel", ["canary", "dev"]), when: is("interceptors", true) },
+    { name: "maturation needs beta or dev", requires: oneOf("channel", ["beta", "dev"]), when: is("maturation", true) },
   ],
 });
 
@@ -208,7 +214,7 @@ console.log(count(model));
 24
 */
 
-console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true, maturation: undefined, channel: "beta" }), { depth: null });
+console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true, maturation: undefined, channel: "beta" }), { depth: 4 });
 /*
 {
   valid: false,
@@ -229,8 +235,8 @@ console.dir(explain(model, { mode: "token", ratio: undefined, interceptors: true
       },
       rule: {
         name: 'interceptors need canary or dev',
-        requires: { in: [ 'channel', [ 'canary', 'dev' ] ] },
-        when: { is: [ 'interceptors', true ] }
+        requires: { kind: 'and', left: [Object], right: [Object] },
+        when: { kind: 'and', left: [Object], right: [Object] }
       }
     }
   ]
@@ -319,7 +325,7 @@ The enumeration order is fixed, so a position in it is enough to find a combinat
 
 ```ts
 // examples/09-paging.ts
-import { at, choice, count, defineModel, indexOf, samples } from "combinatrix";
+import { at, choice, count, defineModel, indexOf, is, samples } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -327,7 +333,7 @@ const model = defineModel({
     choice("arch", ["x64", "arm64"]),
     choice("runtime", [undefined, "node", "bun"]),
   ],
-  rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
+  rules: [{ name: "bun is not offered on windows", excludes: is("os", "windows"), when: is("runtime", "bun") }],
 });
 
 const size = count(model);
@@ -380,7 +386,7 @@ A model's types reach its results as well as its inputs. A computed dimension gi
 
 ```ts
 // examples/10-typed.ts
-import { choice, collect, computed, defineModel, explain } from "combinatrix";
+import { allOf, choice, collect, computed, defineModel, explain, is } from "combinatrix";
 
 const os = choice("os", ["linux", "macos", "windows"]);
 const arch = choice("arch", ["x64", "arm64"]);
@@ -392,7 +398,7 @@ const model = defineModel({
     // Given as the dimensions themselves, the reads arrive with their own value types.
     computed("target", { reads: [os, arch], compute: (values) => `${values.arch}-${values.os === "macos" ? "apple-darwin" : values.os}` }),
   ],
-  rules: [{ name: "no arm64 on windows", excludes: { all: [{ is: ["os", "windows"] }, { is: ["arch", "arm64"] }] } }],
+  rules: [{ name: "no arm64 on windows", excludes: allOf(is("os", "windows"), is("arch", "arm64")) }],
 });
 
 console.log(collect(model).map(({ values }) => values.target));
@@ -420,20 +426,35 @@ no arm64 on windows
 */
 ```
 
-A model kept in a JSON file takes the untyped route: `parseModel` validates the data against the shape the JSON Schema describes, defines the model it states, and throws `ModelError` listing every defect, as `defineModel` does for one written in code. Unset is not a JSON value, so a dimension is unset only where its `activeWhen` does not hold; the dimension names and values are known only at runtime, so a combination's type is a record of scalars or `undefined` and `explainData` checks a record against the model.
+A model kept in a JSON file takes the untyped route: `parseModel` validates the data against the shape the JSON Schema describes, defines the model it states, and throws `ModelError` listing every defect, as `defineModel` does for one written in code. Its conditions are trilean predicate trees, written out as `JSON.stringify` writes what the builders return; a comparison of a dimension that can be unset needs the `exists` guard the builders add, here on `codec`. Unset is not a JSON value, so a dimension is unset only where its `activeWhen` does not hold; the dimension names and values are known only at runtime, so a combination's type is a record of scalars or `undefined` and `explainData` checks a record against the model.
 
 ```ts
 // examples/11-json-model.ts
 import { collect, ModelError, parseModel } from "combinatrix";
 
-// The contents of a model file. JSON has no `undefined`, so a dimension is unset only where its `activeWhen` does not hold.
+// The contents of a model file. Conditions are trilean predicate trees. JSON has no `undefined`, so a dimension is unset only where its `activeWhen` does not hold, and a comparison of a dimension that can be unset is guarded by `exists`, as a trilean comparison of an absent value is undecided rather than false.
 const text = `{
   "dimensions": [
     { "kind": "choice", "name": "os", "values": ["linux", "windows"] },
     { "kind": "choice", "name": "compress", "values": [true, false] },
-    { "kind": "first-valid", "name": "codec", "candidates": ["zstd", "brotli"], "activeWhen": { "is": ["compress", true] } }
+    {
+      "kind": "first-valid",
+      "name": "codec",
+      "candidates": ["zstd", "brotli"],
+      "activeWhen": { "kind": "memberOf", "op": "in", "operand": { "kind": "reference", "key": "compress" }, "candidates": [{ "kind": "booleanLiteral", "value": true }] }
+    }
   ],
-  "rules": [{ "name": "windows has no zstd", "excludes": { "is": ["codec", "zstd"] }, "when": { "is": ["os", "windows"] } }]
+  "rules": [
+    {
+      "name": "windows has no zstd",
+      "excludes": {
+        "kind": "and",
+        "left": { "kind": "exists", "operand": { "kind": "reference", "key": "codec" } },
+        "right": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "codec" }, "right": { "kind": "textLiteral", "value": "zstd" } }
+      },
+      "when": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "os" }, "right": { "kind": "textLiteral", "value": "windows" } }
+    }
+  ]
 }`;
 
 const data: unknown = JSON.parse(text);
@@ -449,15 +470,14 @@ for (const { values } of collect(model)) console.log(values);
 
 // A rule naming a dimension the model lacks is refused, with every such defect listed.
 try {
-  parseModel({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }], rules: [{ requires: { set: "arch" } }] });
+  parseModel({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }], rules: [{ requires: { kind: "exists", operand: { kind: "reference", key: "arch" } } }] });
 } catch (error) {
   if (!(error instanceof ModelError)) throw error;
 
   for (const issue of error.issues) console.log(issue);
 }
 /*
-rule 0 mentions unknown dimension "arch"
-constraint 0 depends on unknown dimension "arch"
+rule 0 at $.operand: mentions unknown dimension "arch"
 */
 ```
 
@@ -465,7 +485,7 @@ A strategy chooses which combinations of the solution set to produce, and `cover
 
 ```ts
 // examples/12-covering-array.ts
-import { choice, collect, count, coveringArray, defineModel, isCoveringArray } from "combinatrix";
+import { choice, collect, count, coveringArray, defineModel, is, isCoveringArray } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -473,7 +493,7 @@ const model = defineModel({
     choice("arch", ["x64", "arm64"]),
     choice("runtime", ["node", "bun", "deno"]),
   ],
-  rules: [{ name: "bun is not offered on windows", excludes: { is: ["runtime", "bun"] }, when: { is: ["os", "windows"] } }],
+  rules: [{ name: "bun is not offered on windows", excludes: is("runtime", "bun"), when: is("os", "windows") }],
 });
 
 const rows = collect(model, { strategy: coveringArray({ strength: 2 }) }).map(({ values }) => values);
@@ -505,13 +525,13 @@ true
 
 ### Typed and untyped routes
 
-A model written in code is checked by the compiler as far as its types can show: domains are non-empty, dimension names are unique, every rule, condition, `activeWhen`, computed `reads` and `predicate` names only dimensions declared where it may (before it, or before a first-valid dimension it constrains) and compares each with values from that dimension's own domain, testing `unset` only where the dimension's type includes `undefined`, and `explain` takes exactly one of the model's combinations (`CombinationOf<typeof model>`). A refused `defineModel` argument names each defect in an `error` property it lacks.
+A model written in code is checked by the compiler as far as its types can show: domains are non-empty, dimension names are unique, every rule, condition built with the condition builders, `activeWhen`, computed `reads` and `predicate` names only dimensions declared where it may (before it, or before a first-valid dimension it constrains) and compares each with values from that dimension's own domain, testing for unset only where the dimension's type includes `undefined` and comparing values only of a dimension trilean can compare (see [Conditions and rules](#conditions-and-rules)), and `explain` takes exactly one of the model's combinations (`CombinationOf<typeof model>`). A refused `defineModel` argument names each defect in an `error` property it lacks, or fails to match `TypedRule` where a rule is written.
 
 The results are typed by the same dimensions. `explain`'s reasons and `diagnose`'s dead values are unions keyed by dimension, so testing `dimension` narrows `value`. A computed dimension's `compute` and a `predicate`'s `test` receive exactly the dimensions in `reads`, each with its own value type where `reads` gives the dimension itself, and as any `Value` where it gives only a name; `defineModel` refuses a `compute` whose parameter does not accept every value its reads can hold. A strategy typed `Strategy<CombinationOf<typeof model>>` passes typed assignments to `completions` and `test`, gets typed combinations back and must yield them, and is refused for a model of another type.
 
 What the types cannot show stays a runtime check. Whether the rules can be satisfied and which values are dead needs a search, so that stays with `diagnose`. A strategy's assignment map types its keys and its values but cannot pair each key with its own dimension's values, so a value another dimension takes agrees with no combination; and every row a strategy yields is still checked against the model, typed or not. A dimension given to a standalone `predicate` as itself is held to its own values when the predicate is evaluated, since a strategy's `test` can pass anything. A record that bypasses the types of `explain` or `indexOf` (a cast, or untyped JavaScript) is refused at runtime rather than explained: `explain` throws `TypeError`.
 
-Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: a whole model read from JSON goes through `parseModel(data)`, which throws `ModelError` or returns the model; rules parsed from JSON for dimensions written in code go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`, whose reasons name dimensions as strings and type what is not even a value as `unknown`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, `Condition` or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
+Data the compiler cannot see takes the untyped route, checked at runtime with every defect reported: a whole model read from JSON goes through `parseModel(data)`, which throws `ModelError` or returns the model; rules parsed from JSON for dimensions written in code go through `parseRules(dimensions, data)`, which throws `ModelError` or returns them typed for `defineModel`; a record goes through `explainData(model, data)`, whose reasons name dimensions as strings and type what is not even a value as `unknown`; a domain built at runtime is narrowed with `isNonEmpty(values)`. A part typed only as `string`, a `Condition` that is a bare trilean tree (one parsed from JSON or written by hand rather than by the builders) or a third-party `Constraint` is accepted by the compiler and checked by `defineModel` when the model is defined, which repeats every check at runtime because data can bypass the types.
 
 ### Dimensions
 
@@ -520,44 +540,60 @@ Data the compiler cannot see takes the untyped route, checked at runtime with ev
 - `firstValid(name, candidates, options?)`: a derived dimension resolved to the first candidate no constraint rejects. Every constraint that mentions it may otherwise mention only dimensions declared before it; a combination with no acceptable candidate is not in the solution set.
 - `computed(name, { reads, compute, activeWhen? })`: a derived dimension computed by a pure function of the dimensions in `reads`, each declared before it and given by name or as the dimension itself. `compute` receives exactly those dimensions, each typed by its own values when given as itself.
 
-`options.activeWhen` is a condition on dimensions declared before this one. Where it does not hold, the dimension is unset, and its type gains `undefined`.
+`options.activeWhen` is a condition on dimensions declared before this one. Where it does not hold, the dimension is unset, and its type gains `undefined`. Where the assignment cannot decide it yet, the dimension counts as active.
 
 Values are JSON scalars (string, finite number, boolean, `null`) or `undefined` for unset. Two values are equal when their JSON forms are, so `0` and `-0` are one value and `null` is never unset.
 
 ### Conditions and rules
 
-A condition is JSON-shaped data:
+A condition is a [trilean](https://www.npmjs.com/package/trilean) predicate tree whose `reference` nodes name dimensions: plain JSON, evaluated by trilean three-valued on a partial assignment, so the same tree can be stored, sent and evaluated by anything else that speaks trilean. A dimension not yet assigned is not yet known, so a test of it is unknown, and an unset one is known to be absent, so `exists` is false for it. The builders write the trees and record in their types what they mention, so that `defineModel` checks them at compile time:
 
-| Condition | Holds when |
-| --- | --- |
-| `{ is: [dimension, value] }` | the dimension is set to the value |
-| `{ in: [dimension, values] }` | the dimension is set to one of the values |
-| `{ set: dimension }` | the dimension is set to anything |
-| `{ unset: dimension }` | the dimension is unset |
-| `{ all: [...] }`, `{ any: [...] }`, `{ not: condition }` | conjunction, disjunction, negation |
+| Builder | Holds when | Tree |
+| --- | --- | --- |
+| `is(dimension, value)` | the dimension is set to the value | `and(exists(d), memberOf(d, [value]))` |
+| `oneOf(dimension, values)` | the dimension is set to one of the values | `and(exists(d), memberOf(d, values))` |
+| `isSet(dimension)` | the dimension is set to anything | `exists(d)` |
+| `isUnset(dimension)` | the dimension is unset | `not(exists(d))` |
+| `allOf(...conditions)`, `anyOf(...conditions)`, `not(condition)` | conjunction, disjunction, negation | `allOf`, `anyOf`, `not` |
 
-A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`. Rules and conditions are evaluated with Kleene's three-valued logic, so a test on an unassigned dimension is unknown and an `any` with one true operand is true whatever the others are. `{ unset: dimension }` is refused for a dimension that can never be unset. A rule written apart from the model is typed `TypedRule<CombinationOf<typeof model>>` (or `TypedRule<TupleOf<typeof dimensions>>`); `isRule(value)` and `isCondition(value)` check only the shape of data.
+A trilean comparison of an absent value is undecided rather than false, so `is` and `oneOf` guard theirs with `exists`, which makes them false where the dimension is unset; a tree written by hand needs the same guard on a dimension that can be unset, or it stays undecided once every dimension it reads is assigned and the engine throws `UndecidedConstraintError`. Equality is trilean's `memberOf`, the same as a combination's: strings, numbers and booleans by value, `0` and `-0` alike. trilean has no `null` and compares values of one kind only, so a condition cannot read a dimension that can take `null`, and can compare a dimension's values only when they, and the values compared with, are all strings, all numbers or all booleans; `isSet` and `isUnset` work for a dimension of mixed kinds. Both are compile errors through the builders and `ModelError` issues at runtime, and `predicate` is the route for such a dimension. Node kinds an assignment of dimensions cannot back (`some`, `every`, `fold`, `accumulator`, `lookup`, `delegate`, `treeReference`), a `call` (no function is registered, as under trilean's own default) and a tree past trilean's evaluation budget are refused by `defineModel`.
+
+A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ implies: [antecedent, consequent] }`, optionally scoped with `when` and `unless` conditions and labelled with `name`; it is plain JSON too. `ruleTree(rule)` is the one tree it states, `scope implies body`, which is what the engine evaluates, with Kleene's logic throughout: an `anyOf` with one true operand is true whatever the others are. A comparison with a value a dimension can never take is refused, at compile time and by `defineModel`; `isUnset` of a dimension that can never be unset is a compile error, while at runtime its tree is `not(isSet(d))`, which is simply false there. A rule written apart from the model is typed `TypedRule<CombinationOf<typeof model>>` (or `TypedRule<TupleOf<typeof dimensions>>`), and a condition `TypedCondition<...>`; `isRule(value)` and `isCondition(value)` check only the shape of data, against trilean's schema for the trees.
 
 ### Models
 
-`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: data that is not well formed (an unknown or misspelt key, a wrong type, a malformed condition), duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a rule comparing a dimension with a value it can never take, and a first-valid dimension constrained together with a dimension declared after it.
+`defineModel({ dimensions, rules?, constraints? })` checks the model and returns it, typed so that each combination's type is inferred from the dimensions. It throws `ModelError` listing every defect: data that is not well formed (an unknown or misspelt key, a wrong type, a condition that is not a trilean predicate tree), duplicate or empty names, empty domains, repeated or non-JSON values, references to unknown or later dimensions, a condition trilean could not decide over the dimensions (a refused node kind, a dimension that can take `null`, a comparison across value kinds, a tree past the evaluation budget), a comparison with a value a dimension can never take, and a first-valid dimension constrained together with a dimension declared after it. Each issue about a condition names where in its tree the defect is (`$` is the root). Every condition is checked and bound to a trilean evaluator once, here, so evaluating a constraint repeats none of that work.
 
 `parseModel(data)` is the same for a model that is JSON data: it throws `ModelError` for data that is not the shape the JSON Schema describes (`isModelData(value)` is that check as a guard for `ModelData`) and otherwise for every refusal `defineModel` makes. It returns a `Model` whose combinations map each name to a scalar or `undefined`. `defineModel` with literals gives a type to each name and domain, so `explain` refuses a misspelt dimension or an impossible value at compile time; the parsed model has only the runtime checks of `explainData` and `isTuple`.
 
 ### JSON Schema
 
-The package ships `schemas/combinatrix.schema.json`, a JSON Schema (draft 2020-12) for the data a configuration file holds: a model with `choice` and `firstValid` dimensions over literal values, `activeWhen` conditions and rules; a list of rules; a single rule; or a single condition. Its `$id` names the package version it ships in, and each definition (`Model`, `Rules`, `Rule`, `Condition`) can be validated against on its own, such as `combinatrix.schema.json#/$defs/Rules`. A rules file for a model with `os`, `arch` and `runtime` dimensions looks like this:
+The package ships `schemas/combinatrix.schema.json`, a JSON Schema (draft 2020-12) for the data a configuration file holds: a model with `choice` and `firstValid` dimensions over literal values, `activeWhen` conditions and rules; a list of rules; a single rule; or a single condition. Its conditions are trilean's `PredicateNode`, taken from trilean's own schema. Its `$id` names the package version it ships in, and each definition (`Model`, `Rules`, `Rule`, `PredicateNode`) can be validated against on its own, such as `combinatrix.schema.json#/$defs/Rules`. A rules file for a model with `os`, `arch` and `runtime` dimensions, where only `runtime` can be unset, looks like this:
 
 ```json
 [
-  { "excludes": { "is": ["os", "windows"] }, "when": { "is": ["runtime", "bun"] }, "name": "bun is not offered on windows" },
-  { "implies": [{ "is": ["arch", "arm64"] }, { "not": { "is": ["os", "windows"] } }], "unless": { "is": ["runtime", "node"] } }
+  {
+    "name": "bun is not offered on windows",
+    "excludes": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "os" }, "right": { "kind": "textLiteral", "value": "windows" } },
+    "when": {
+      "kind": "and",
+      "left": { "kind": "exists", "operand": { "kind": "reference", "key": "runtime" } },
+      "right": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "runtime" }, "right": { "kind": "textLiteral", "value": "bun" } }
+    }
+  },
+  {
+    "implies": [
+      { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "arch" }, "right": { "kind": "textLiteral", "value": "arm64" } },
+      { "kind": "textCompare", "op": "notEquals", "left": { "kind": "reference", "key": "os" }, "right": { "kind": "textLiteral", "value": "windows" } }
+    ],
+    "unless": { "kind": "exists", "operand": { "kind": "reference", "key": "runtime" } }
+  }
 ]
 ```
 
 To have an editor check such files, map their names to the schema in its settings, for example VS Code's `json.schemas` with the `fileMatch` pattern `*.rules.json` and the `url` `./node_modules/combinatrix/schemas/combinatrix.schema.json`. To validate in code, import it through the package's `exports` (`combinatrix/schemas/combinatrix.schema.json`) and give it to a draft 2020-12 validator such as Ajv's `ajv/dist/2020`. To load a model file without a validator, give its parsed contents to `parseModel`, which needs no schema at runtime; `parseRules` loads a rules file for dimensions written in code.
 
-The schema covers only what is data. Computed dimensions, `sampled` domains, `predicate` and every other constraint given through the constraint contract are functions and are not described, and unset is not a JSON value, so a dimension is unset only through `activeWhen`. It states the shape, not what depends on the whole model: that names are unique and that every condition names a dimension and a value the model has are checked by `defineModel`, and `parseModel` and `parseRules` check them for a model file and a rules file. A test requires the schema and `isCondition`, `isRule`, `isModelData`, `parseModel`, `parseRules` and `defineModel` to accept and refuse the same data, and `pnpm build` regenerates the file from the Zod definitions in `scripts/`, which are a development dependency only.
+The schema covers only what is data. Computed dimensions, `sampled` domains, `predicate` and every other constraint given through the constraint contract are functions and are not described, and unset is not a JSON value, so a dimension is unset only through `activeWhen`. It states the shape, not what depends on the whole model: that names are unique, that every condition names a dimension and a value the model has and uses only node kinds an assignment of dimensions can back are checked by `defineModel`, and `parseModel` and `parseRules` check them for a model file and a rules file. A test requires the schema and `isCondition`, `isRule`, `isModelData`, `parseModel`, `parseRules` and `defineModel` to accept and refuse the same data, and `pnpm build` regenerates the file from the Zod definitions in `scripts/`, which are a development dependency only.
 
 ### Enumerating
 
@@ -582,7 +618,7 @@ The order `combinations` produces with `full` is fixed, so each combination has 
 
 ### Errors
 
-Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit` and the `bound` it limited: `solution-set` for `count`, `diagnose` and `full`, `selection` for what another strategy selects, and `rows` or `steps` for a strategy's own cap, each with its own message), `ConstraintContractError` and `StrategyError`. A limit or index that is not a non-negative integer throws `RangeError`, as do a count past `Number.MAX_SAFE_INTEGER` where an exact index is needed and a `random` source that returns anything but an integer below its bound.
+Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with the `limit` and the `bound` it limited: `solution-set` for `count`, `diagnose` and `full`, `selection` for what another strategy selects, and `rows` or `steps` for a strategy's own cap, each with its own message), `ConstraintContractError`, `StrategyError` and `UnmappableValueError`, thrown when a condition reads a computed dimension whose function produced `null`. `UndecidedConstraintError` is the `ConstraintContractError` a condition throws when it stays undecided once every dimension it reads is assigned, carrying trilean's reason. A limit or index that is not a non-negative integer throws `RangeError`, as do a count past `Number.MAX_SAFE_INTEGER` where an exact index is needed and a `random` source that returns anything but an integer below its bound.
 
 ### Cancellation
 
@@ -592,7 +628,7 @@ Every error extends `CombinatrixError`: `ModelError`, `LimitExceededError` (with
 
 ### The constraint contract
 
-Another constraint language plugs in by implementing `Constraint`:
+Rules and `activeWhen` conditions are trilean trees, which the engine evaluates itself. Another constraint language plugs in by implementing `Constraint`:
 
 ```ts
 interface Constraint {
@@ -604,7 +640,7 @@ interface Constraint {
 
 The assignment maps each assigned dimension to its value; a dimension absent from the map is unassigned, and one mapped to `undefined` is set to unset. An implementation names every dimension it reads in `dependencies`, is pure, and is monotone: a `valid` or `invalid` answer on a partial assignment must hold for every extension of it, so answering `unknown` is always safe before every dependency is assigned. Once every dependency is assigned it must answer `valid` or `invalid`; `unknown` then throws `ConstraintContractError`. Pass implementations as `constraints` to `defineModel`.
 
-`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, it is bound to the model and `test` receives each read dimension's own value type. The standalone form passes each dimension given in `reads` as itself with its own value type, answering `invalid` without calling `test` for a value it cannot hold, and each one given by name as a plain `Value`.
+`predicate({ reads, test, name? })` is the built-in escape hatch: it answers `unknown` until every dimension in `reads` is assigned and then calls `test` with their values. It is sound for any function that reads only what it declared, but it is not serialisable and cannot prune early, so prefer rules where they can say it; it is the route for a dimension a trilean condition cannot read, one that can take `null` or whose values are of mixed kinds. Written as `constraints: ({ predicate }) => [predicate({ reads, test })]`, it is bound to the model and `test` receives each read dimension's own value type. The standalone form passes each dimension given in `reads` as itself with its own value type, answering `invalid` without calling `test` for a value it cannot hold, and each one given by name as a plain `Value`.
 
 ### Strategies
 
@@ -640,7 +676,7 @@ Node 22 or later, pnpm. ESM only.
 | `pnpm test` | Vitest, tests colocated as `*.unit.test.ts` |
 | `pnpm build` | tsdown into `dist`, then `schemas/combinatrix.schema.json` from `scripts/generate-json-schema.ts` |
 
-CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types depend on neither.
+CI also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types, and trilean's, depend on neither. trilean's tree types are inferred from zod schemas, and zod's own declarations name the `URL` global, so a consumer that checks library declarations (`skipLibCheck` off) needs the DOM library or a runtime's types for zod's sake; that diagnostic is the one the check allows.
 
 ## Releases
 

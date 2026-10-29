@@ -122,6 +122,9 @@ describe("the unset example", () => {
   });
 });
 
+/** The kind of each reason in an explanation as `console.dir` prints it, where each reason's own keys are indented by six spaces and a condition's nodes are printed inline after a key. */
+const REASON_KIND = /^ {6}kind: /gmu;
+
 describe("the rules example", () => {
   const survivors = OS.flatMap((os) => ARCH.flatMap((arch) => RUNTIME.filter((runtime) => !(runtime === "bun" && os === "windows")).map((runtime) => ({ os, arch, runtime }))));
 
@@ -130,10 +133,16 @@ describe("the rules example", () => {
   });
 
   it("explains the excluded combination by naming the rule that excludes it, and no other reason", async () => {
-    const explanation = (await printedOf("03-rules.ts")).slice(1).join("\n");
+    const explanation = (await printedOf("03-rules.ts")).slice(1, -1).join("\n");
     expect(explanation).toContain("valid: false");
     expect(explanation).toContain("name: 'bun is not offered on windows'");
-    expect(explanation.match(/kind:/gu)).toHaveLength(1);
+    expect(explanation.match(REASON_KIND)).toHaveLength(1);
+  });
+
+  it("prints the condition as a trilean tree: the dimension exists and is a member of the one value", async () => {
+    const line = (await printedOf("03-rules.ts")).at(-1) ?? "";
+    const reference = { kind: "reference", key: "os" };
+    expect(JSON.parse(line)).toEqual({ kind: "and", left: { kind: "exists", operand: reference }, right: { kind: "memberOf", op: "in", operand: reference, candidates: [{ kind: "textLiteral", value: "windows" }] } });
   });
 });
 
@@ -187,7 +196,7 @@ describe("the advanced example", () => {
     const explanation = (await printedOf("06-advanced.ts")).slice(1).join("\n");
     expect(explanation).toContain("expected: 'canary'");
     expect(explanation).toContain("name: 'interceptors need canary or dev'");
-    expect(explanation.match(/kind:/gu)).toHaveLength(2);
+    expect(explanation.match(REASON_KIND)).toHaveLength(2);
   });
 });
 
@@ -240,7 +249,7 @@ describe("the cancellation example", () => {
 });
 
 describe("the JSON model example", () => {
-  it("lists the model's combinations with the first dimension slowest, the codec the first the rule accepts and unset only where `compress` is off, then the two issues for the rule naming a dimension the model lacks", async () => {
+  it("lists the model's combinations with the first dimension slowest, the codec the first the rule accepts and unset only where `compress` is off, then the issue for the rule naming a dimension the model lacks", async () => {
     const codecs = ["zstd", "brotli"] as const;
     const expected = (["linux", "windows"] as const).flatMap((os) =>
       ([true, false] as const).map((compress) => {
@@ -249,7 +258,7 @@ describe("the JSON model example", () => {
         return format({ os, compress, codec });
       }),
     );
-    expect(await printedOf("11-json-model.ts")).toEqual([...expected, 'rule 0 mentions unknown dimension "arch"', 'constraint 0 depends on unknown dimension "arch"']);
+    expect(await printedOf("11-json-model.ts")).toEqual([...expected, 'rule 0 at $.operand: mentions unknown dimension "arch"']);
   });
 });
 

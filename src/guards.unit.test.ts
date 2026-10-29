@@ -2,19 +2,19 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { fnv1a64 } from "./hash";
 import type { Model, ModelData, TupleOf, TypedRule, Value } from "./index";
-import { choice, collect, count, defineModel, explainData, firstValid, isCondition, isModelData, isRule, ModelError, parseModel, parseRules } from "./index";
+import { allOf, anyOf, choice, collect, count, defineModel, explainData, firstValid, is, isCondition, isModelData, isRule, isSet, isUnset, ModelError, not, oneOf, parseModel, parseRules } from "./index";
 
 describe("isCondition", () => {
-  it.each([{ is: ["a", "x"] }, { is: ["a", null] }, { in: ["a", ["x", 1, true, null]] }, { set: "a" }, { unset: "a" }, { all: [] }, { any: [{ set: "a" }] }, { not: { all: [{ set: "a" }, { unset: "b" }] } }])("accepts %j", (value) => {
+  it.each([is("a", "x"), oneOf("a", ["x", 1, true]), isSet("a"), isUnset("a"), allOf(), anyOf(isSet("a")), not(allOf(isSet("a"), isUnset("b"))), { kind: "exists", operand: { kind: "reference", key: 1 } }])("accepts %j", (value) => {
     expect(isCondition(value)).toBe(true);
   });
 
-  it.each([null, [], "a", { is: ["a"] }, { is: [1, "x"] }, { is: ["a", { nested: true }] }, { is: ["a", Number.NaN] }, { in: ["a", "x"] }, { in: ["a"] }, { set: 1 }, { all: [{ bogus: "a" }] }, { not: "a" }, { set: "a", unset: "a" }, {}])("refuses %j", (value) => {
+  it.each([null, [], "a", { is: ["a", "x"] }, { set: "a" }, { kind: "exists" }, { kind: "reference", key: "a" }, { kind: "exists", operand: { kind: "reference", key: "a" }, extra: 1 }, { kind: "memberOf", op: "in", operand: { kind: "reference", key: "a" }, candidates: [{ kind: "numberLiteral", value: Number.NaN }] }, { kind: "not", operand: "a" }, {}])("refuses %j", (value) => {
     expect(isCondition(value)).toBe(false);
   });
 });
 
-const RULES_JSON = '[{"requires":{"set":"a"}},{"excludes":{"is":["a","x"]},"when":{"set":"a"},"name":"no x"},{"implies":[{"is":["a","x"]},{"unset":"a"}],"unless":{"unset":"a"}}]';
+const RULES_JSON = JSON.stringify([{ requires: isSet("a") }, { excludes: is("a", "x"), when: isSet("a"), name: "no x" }, { implies: [is("a", "x"), isUnset("a")], unless: isUnset("a") }]);
 
 describe("isRule", () => {
   it("accepts every form read back from JSON", () => {
@@ -22,7 +22,7 @@ describe("isRule", () => {
     expect(Array.isArray(parsed) && parsed.every(isRule)).toBe(true);
   });
 
-  it.each([null, {}, { requires: { set: "a" }, excludes: { set: "a" } }, { requires: "a" }, { implies: [{ set: "a" }] }, { requires: { set: "a" }, when: "a" }, { requires: { set: "a" }, unless: 1 }, { requires: { set: "a" }, name: 1 }, { requires: { set: "a" }, extra: true }])("refuses %j", (value) => {
+  it.each([null, {}, { requires: isSet("a"), excludes: isSet("a") }, { requires: "a" }, { implies: [isSet("a")] }, { requires: isSet("a"), when: "a" }, { requires: isSet("a"), unless: 1 }, { requires: isSet("a"), name: 1 }, { requires: isSet("a"), extra: true }])("refuses %j", (value) => {
     expect(isRule(value)).toBe(false);
   });
 });
@@ -38,11 +38,13 @@ describe("parseRules", () => {
   });
 
   it("refuses data that is not an array", () => {
-    expect(() => parseRules(dimensions, { requires: { set: "a" } })).toThrow(new ModelError(["the rules are not an array"]));
+    expect(() => parseRules(dimensions, { requires: isSet("a") })).toThrow(new ModelError(["the rules are not an array"]));
   });
 
-  it("lists every defect: a malformed rule, an unknown dimension, a value a dimension never takes and an unset one that is never unset", () => {
-    const data: unknown = JSON.parse('[{"requires":"a"},{"requires":{"set":"z"}},{"requires":{"in":["b",[1,3]]}},{"excludes":{"unset":"b"}},{"requires":{"is":["a","x"]}}]');
+  it("lists every defect: a malformed rule with where its tree fails, an unknown dimension, a value a dimension never takes and a comparison across kinds", () => {
+    /** A number `b` never takes: its values are 1 and 2. */
+    const NEVER_TAKEN = 3;
+    const data: unknown = JSON.parse(JSON.stringify([{ requires: "a" }, { requires: isSet("z") }, { requires: oneOf("b", [1, NEVER_TAKEN]) }, { excludes: is("b", "one") }, { requires: is("a", "x") }]));
     let issues: readonly string[] = [];
     try {
       parseRules(dimensions, data);
@@ -50,13 +52,26 @@ describe("parseRules", () => {
       if (!(error instanceof ModelError)) throw error;
       ({ issues } = error);
     }
-    expect(issues).toEqual(["rule 0 is not a well-formed rule", 'rule 1 mentions unknown dimension "z"', 'rule 2 compares "b" with 3, which it can never take', 'rule 3 compares "b" with unset, which it can never take']);
+    expect(issues).toEqual([
+      "rule 0 is not a well-formed rule",
+      "rule 0 requires at $: Invalid input: expected object, received string (not a trilean predicate tree)",
+      'rule 1 at $.operand: mentions unknown dimension "z"',
+      'rule 2 at $.right: compares "b" with 3, which it can never take',
+      'rule 3 at $.right: compares "b" with "one", which it can never take',
+      'rule 3 at $.right: compares "b" across value kinds (number, text), and trilean compares values of one kind only',
+    ]);
   });
 });
 
 /** The data of a model as a JSON file holds it: an unset runtime and a codec derived only when compressing, so unset appears only through `activeWhen`. */
-const MODEL_JSON =
-  '{"dimensions":[{"kind":"choice","name":"os","values":["linux","windows"]},{"kind":"choice","name":"compress","values":[true,false]},{"kind":"first-valid","name":"codec","candidates":["zstd","brotli"],"activeWhen":{"is":["compress",true]}}],"rules":[{"excludes":{"is":["codec","zstd"]},"when":{"is":["os","windows"]},"name":"windows has no zstd"}]}';
+const MODEL_JSON = JSON.stringify({
+  dimensions: [
+    { kind: "choice", name: "os", values: ["linux", "windows"] },
+    { kind: "choice", name: "compress", values: [true, false] },
+    { kind: "first-valid", name: "codec", candidates: ["zstd", "brotli"], activeWhen: is("compress", true) },
+  ],
+  rules: [{ excludes: is("codec", "zstd"), when: is("os", "windows"), name: "windows has no zstd" }],
+});
 
 /** The issues `parseModel` refuses the data with. */
 function parseModelIssues(data: unknown): readonly string[] {
@@ -107,10 +122,10 @@ describe("isModelData", () => {
 
   it("accepts what only `defineModel` can refuse: a repeated name and a mention of a dimension the model lacks", () => {
     const repeated = { dimensions: [{ kind: "choice", name: "a", values: ["x"] }, { kind: "choice", name: "a", values: ["x"] }] };
-    const unknown = { dimensions: [{ kind: "choice", name: "a", values: ["x"] }], rules: [{ requires: { set: "z" } }] };
+    const unknown = { dimensions: [{ kind: "choice", name: "a", values: ["x"] }], rules: [{ requires: isSet("z") }] };
     expect(isModelData(repeated) && isModelData(unknown)).toBe(true);
     expect(parseModelIssues(repeated)).toEqual(['dimension "a" is declared more than once']);
-    expect(parseModelIssues(unknown)).toEqual(['rule 0 mentions unknown dimension "z"', 'constraint 0 depends on unknown dimension "z"']);
+    expect(parseModelIssues(unknown)).toEqual(['rule 0 at $.operand: mentions unknown dimension "z"']);
   });
 });
 
@@ -130,8 +145,8 @@ describe("parseModel", () => {
 
   it("builds the same model `defineModel` builds from the same definition written in code", () => {
     const typed = defineModel({
-      dimensions: [choice("os", ["linux", "windows"]), choice("compress", [true, false]), firstValid("codec", ["zstd", "brotli"], { activeWhen: { is: ["compress", true] } })],
-      rules: [{ excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] }, name: "windows has no zstd" }],
+      dimensions: [choice("os", ["linux", "windows"]), choice("compress", [true, false]), firstValid("codec", ["zstd", "brotli"], { activeWhen: is("compress", true) })],
+      rules: [{ excludes: is("codec", "zstd"), when: is("os", "windows"), name: "windows has no zstd" }],
     });
     const parsed = parseModel(JSON.parse(MODEL_JSON));
     expect(parsed.dimensions).toEqual(typed.dimensions);
@@ -149,6 +164,7 @@ describe("parseModel", () => {
     const data: unknown = { dimensions: [{ kind: "choice", name: "a", values: ["x", undefined, "x"] }, { kind: "computed", name: "b", reads: [], compute: () => 1 }, { kind: "choice", name: "", values: [] }], rules: [{ requires: "a" }], constraints: [] };
     expect(parseModelIssues(data)).toEqual([
       "rule 0 is not a well-formed rule",
+      "rule 0 requires at $: Invalid input: expected object, received string (not a trilean predicate tree)",
       "the model data has constraints, which are functions and not data",
       'dimension "a" lists "x" more than once',
       "dimension 0 has an unset value, which JSON cannot state: a dimension is unset only through activeWhen",
@@ -162,12 +178,18 @@ describe("parseModel", () => {
     expect(parseModelIssues(null)).toEqual(["the model definition is not an object"]);
   });
 
-  it("lists every defect the whole model has once the data is well formed", () => {
-    const data: unknown = {
-      dimensions: [{ kind: "choice", name: "a", values: ["x"] }, { kind: "choice", name: "b", values: [1], activeWhen: { is: ["c", 1] } }, { kind: "choice", name: "c", values: [1] }],
-      rules: [{ requires: { is: ["a", "y"] } }, { excludes: { unset: "a" } }],
+  it("lists every defect the whole model has once the data is well formed, a condition reading a dimension that can take null among them", () => {
+    const data = {
+      dimensions: [{ kind: "choice", name: "a", values: ["x"] }, { kind: "choice", name: "b", values: [1], activeWhen: is("c", 1) }, { kind: "choice", name: "c", values: [1] }],
+      rules: [{ requires: is("a", "y") }, { excludes: is("b", "one") }, { requires: isSet("n") }],
     };
-    expect(parseModelIssues(data)).toEqual(['dimension "b" is active depending on "c", which is not a dimension declared before it', 'rule 0 compares "a" with "y", which it can never take', 'rule 1 compares "a" with unset, which it can never take']);
+    expect(parseModelIssues({ ...data, dimensions: [...data.dimensions, { kind: "choice", name: "n", values: [null] }] })).toEqual([
+      'dimension "b" is active depending on "c", which is not a dimension declared before it',
+      'rule 0 at $.right: compares "a" with "y", which it can never take',
+      'rule 1 at $.right: compares "b" with "one", which it can never take',
+      'rule 1 at $.right: compares "b" across value kinds (number, text), and trilean compares values of one kind only',
+      'rule 2 at $.operand: dimension "n" can take null, which has no trilean value',
+    ]);
   });
 });
 

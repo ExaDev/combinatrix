@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { hashTest, Random, randomModel, seeds, VALUE_POOL } from "../test/random-model";
 import type { Constraint, Diagnosis, Dimension, Model, ModelParts, Value } from "./index";
-import { at, choice, computed, count, defineModel, diagnose, firstValid, indexOf, isNonEmpty, LimitExceededError, predicate } from "./index";
+import { at, choice, computed, count, defineModel, diagnose, firstValid, indexOf, isNonEmpty, isSet, LimitExceededError, predicate } from "./index";
 import { domainOf } from "./dimension";
 import type { CompletionCount, CountingSearch } from "./search";
 import { countCompletions, countingSearch, countSearch, naiveCompletions, rankSearch, searchCombinations, unrankSearch } from "./search";
@@ -26,18 +26,21 @@ const naiveExact: CompletionCount = (search, depth, assignment) => {
 };
 
 /**
- * A random model whose constraints are all decided at its last free dimension or after it: every predicate on the free dimensions reads the last one together with a random selection of the earlier ones, so every depth carries a wide frontier to the end. It also has conditionally active dimensions that may be unset, and may end with a computed dimension that a constraint reads and a first-valid dimension constrained by the free ones.
+ * A random model whose constraints are all decided at its last free dimension or after it: every predicate on the free dimensions reads the last one together with a random selection of the earlier ones, so every depth carries a wide frontier to the end. It also has conditionally active dimensions that may be unset, active where an earlier dimension that cannot take `null` is set, and may end with a computed dimension that a constraint reads and a first-valid dimension constrained by the free ones.
  */
 function lateModel(seed: number): AnyModel {
   const random = new Random(seed);
   const dimensions: Dimension[] = [];
   const names: string[] = [];
+  // The dimensions an activity condition may read: trilean has no value for `null`, so not one that can take it.
+  const readable: string[] = [];
   const freeCount = random.int(2, MAX_LATE_DIMENSIONS);
   for (let index = 0; index < freeCount; index += 1) {
     const name = `d${String(index)}`;
     const values = random.subset(VALUE_POOL, random.int(1, MAX_LATE_DOMAIN));
-    dimensions.push(names.length > 0 && random.chance() ? choice(name, values, { activeWhen: { set: random.pick(names) } }) : choice(name, values));
+    dimensions.push(readable.length > 0 && random.chance() ? choice(name, values, { activeWhen: isSet(random.pick(readable)) }) : choice(name, values));
     names.push(name);
+    if (!values.includes(null)) readable.push(name);
   }
   const last = names.at(-1);
   if (last === undefined) throw new Error("unreachable: a late-constrained model has at least two free dimensions");

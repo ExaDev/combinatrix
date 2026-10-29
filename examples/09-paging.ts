@@ -1,5 +1,5 @@
 // examples/09-paging.ts
-import { at, choice, count, defineModel, indexOf, samples } from "combinatrix";
+import { at, choice, count, defineModel, indexOf, is, samples } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -7,7 +7,7 @@ const model = defineModel({
     choice("arch", ["x64", "arm64"]),
     choice("runtime", [undefined, "node", "bun"]),
   ],
-  rules: [{ name: "bun is not offered on windows", excludes: { is: ["os", "windows"] }, when: { is: ["runtime", "bun"] } }],
+  rules: [{ name: "bun is not offered on windows", excludes: is("os", "windows"), when: is("runtime", "bun") }],
 });
 
 const size = count(model);

@@ -3,8 +3,10 @@ import type { ValidateFunction } from "ajv/dist/2020";
 import * as fc from "fast-check";
 import { expect } from "vitest";
 
-import type { Condition } from "../src/condition";
-import { defineModel, ModelError } from "../src/index";
+import { and, or } from "trilean";
+
+import type { Comparable, Condition } from "../src/condition";
+import { allOf, anyOf, defineModel, is, isSet, isUnset, ModelError, not, oneOf } from "../src/index";
 import type { Rule } from "../src/rule";
 import type { Scalar } from "../src/value";
 import { valueKey } from "../src/value";
@@ -16,7 +18,7 @@ import { buildJsonSchema, PACKAGE_VERSION } from "./json-schema";
 
 /** Fixed, so a failure reproduces. */
 export const SEED = 20_261_029;
-/** Runs per property: enough for every mutation to meet every form of a condition and a rule many times over. */
+/** Runs per property: enough for every mutation to meet every node kind of a condition and every form of a rule many times over. */
 export const RUNS = 600;
 
 export const schema = buildJsonSchema(PACKAGE_VERSION);
@@ -24,7 +26,7 @@ const ajv = new Ajv2020({ strict: true, allowUnionTypes: true });
 ajv.addSchema(schema);
 
 /** The validator for one definition of the schema, or for the whole document when no name is given. */
-export function validatorFor(definition?: "Condition" | "Rule" | "Rules" | "Model" | "ChoiceDimension" | "FirstValidDimension"): ValidateFunction {
+export function validatorFor(definition?: "PredicateNode" | "Rule" | "Rules" | "Model" | "ChoiceDimension" | "FirstValidDimension"): ValidateFunction {
   const id = typeof schema.$id === "string" ? schema.$id : "";
   const validate = ajv.getSchema(definition === undefined ? id : `${id}#/$defs/${definition}`);
   if (validate === undefined) throw new Error(`the schema has no ${definition ?? "root"} to validate against`);
@@ -45,17 +47,33 @@ export const scalar: fc.Arbitrary<Scalar> = fc.oneof(fc.string(), fc.double({ no
 export const MAX_OPERANDS = 3;
 export const MAX_DEPTH = 3;
 
-/** Conditions of every form, nested to a bounded depth, with leaves first so the depth bound has one to fall back on. */
+/** A value a condition can compare with: a scalar trilean has a literal for. */
+export const comparable: fc.Arbitrary<Comparable> = fc.oneof(fc.string(), fc.double({ noNaN: true, noDefaultInfinity: true }), fc.integer(), fc.boolean());
+
+/** A reference to a dimension by name. */
+const reference = (key: string) => ({ kind: "reference", key }) as const;
+
+/** The trilean literal of a comparable value. */
+function literal(value: Comparable) {
+  if (typeof value === "string") return { kind: "textLiteral", value } as const;
+  if (typeof value === "number") return { kind: "numberLiteral", value } as const;
+
+  return { kind: "booleanLiteral", value } as const;
+}
+
+/** Trilean predicate trees of the node kinds a condition over dimensions uses, nested to a bounded depth, with leaves first so the depth bound has one to fall back on: the builders' forms, the binary connectives, and the text and number comparisons a tree written by hand uses. Any name and any value, since the shape is all a schema states. */
 export const condition = fc.letrec<{ condition: Condition }>((tie) => ({
   condition: fc.oneof(
     { maxDepth: MAX_DEPTH, depthSize: "small" },
-    fc.record({ is: fc.tuple(name, scalar) }),
-    fc.record({ in: fc.tuple(name, fc.array(scalar, { maxLength: MAX_OPERANDS })) }),
-    fc.record({ unset: name }),
-    fc.record({ set: name }),
-    fc.record({ all: fc.array(tie("condition"), { maxLength: MAX_OPERANDS }) }),
-    fc.record({ any: fc.array(tie("condition"), { maxLength: MAX_OPERANDS }) }),
-    fc.record({ not: tie("condition") }),
+    name.map((key): Condition => ({ kind: "exists", operand: reference(key) })),
+    fc.tuple(name, fc.array(comparable, { maxLength: MAX_OPERANDS }), fc.constantFrom("in", "notIn")).map(([key, values, op]): Condition => ({ kind: "memberOf", op, operand: reference(key), candidates: values.map(literal) })),
+    fc.tuple(name, fc.string(), fc.constantFrom("equals", "notEquals")).map(([key, value, op]): Condition => ({ kind: "textCompare", op, left: reference(key), right: literal(value) })),
+    fc.tuple(name, fc.integer(), fc.constantFrom("eq", "neq", "lt", "lte", "gt", "gte")).map(([key, value, op]): Condition => ({ kind: "compare", op, left: reference(key), right: literal(value) })),
+    fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((operands): Condition => ({ kind: "allOf", operands })),
+    fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((operands): Condition => ({ kind: "anyOf", operands })),
+    fc.tuple(tie("condition"), tie("condition")).map(([left, right]): Condition => and(left, right)),
+    fc.tuple(tie("condition"), tie("condition")).map(([left, right]): Condition => or(left, right)),
+    tie("condition").map((operand): Condition => ({ kind: "not", operand })),
   ),
 })).condition;
 
@@ -70,31 +88,50 @@ export const rule: fc.Arbitrary<Rule> = fc.oneof(
 
 export const rules = fc.array(rule, { maxLength: MAX_OPERANDS });
 
-/** A condition that mentions only the given dimensions, each compared only with values it can take, unset included where it can be unset. */
+/** A dimension a condition may mention, with the values it can take and whether it can be unset. */
 export interface Mentionable {
   readonly name: string;
   readonly domain: readonly Scalar[];
   readonly unsettable: boolean;
 }
 
+/** The kind of trilean value a scalar maps to, `null` having none. */
+function kindOf(value: Scalar): string {
+  return value === null ? "null" : typeof value;
+}
+
+/** Whether a dimension can be read by a condition at all: trilean has no value for `null`. */
+export const readable = (dimension: Mentionable): boolean => !dimension.domain.includes(null);
+
+/** Whether a dimension's values can be compared: they are all of one kind, and none is `null`. */
+export const comparableDomain = (dimension: Mentionable): boolean => readable(dimension) && new Set(dimension.domain.map(kindOf)).size <= 1;
+
+/** A condition, built with the library's builders, that `defineModel` accepts over the given dimensions: it reads only dimensions with no `null`, compares only those of one kind with values each can take, and tests for unset only one that can be unset. */
 export function conditionOver(known: readonly Mentionable[]): fc.Arbitrary<Condition> {
-  const [first, ...others] = known;
-  if (first === undefined) return fc.constantFrom<Condition>({ all: [] }, { any: [] });
+  const [first, ...others] = known.filter(readable);
+  if (first === undefined) return fc.constantFrom<Condition>(allOf(), anyOf());
 
   const dimension = fc.constantFrom(first, ...others);
-  const [firstUnsettable, ...otherUnsettable] = known.filter((candidate) => candidate.unsettable);
-  const unsetLeaves = firstUnsettable === undefined ? [] : [fc.constantFrom(firstUnsettable, ...otherUnsettable).map((d): Condition => ({ unset: d.name }))];
+  const [firstComparable, ...otherComparable] = [first, ...others].filter(comparableDomain);
+  const comparisons =
+    firstComparable === undefined
+      ? []
+      : [
+          fc.constantFrom(firstComparable, ...otherComparable).chain((d) => fc.constantFrom(...d.domain.filter((value) => value !== null)).map((value): Condition => is(d.name, value))),
+          fc.constantFrom(firstComparable, ...otherComparable).chain((d) => fc.subarray(d.domain.filter((value) => value !== null)).map((values): Condition => oneOf(d.name, values))),
+        ];
+  const [firstUnsettable, ...otherUnsettable] = [first, ...others].filter((candidate) => candidate.unsettable);
+  const unsetLeaves = firstUnsettable === undefined ? [] : [fc.constantFrom(firstUnsettable, ...otherUnsettable).map((d): Condition => isUnset(d.name))];
 
   return fc.letrec<{ condition: Condition }>((tie) => ({
     condition: fc.oneof(
       { maxDepth: MAX_DEPTH, depthSize: "small" },
-      dimension.chain((d) => fc.constantFrom(...d.domain).map((value): Condition => ({ is: [d.name, value] }))),
-      dimension.chain((d) => fc.subarray([...d.domain]).map((values): Condition => ({ in: [d.name, values] }))),
-      dimension.map((d): Condition => ({ set: d.name })),
+      ...comparisons,
+      dimension.map((d): Condition => isSet(d.name)),
       ...unsetLeaves,
-      fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((all): Condition => ({ all })),
-      fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((any): Condition => ({ any })),
-      tie("condition").map((not): Condition => ({ not })),
+      fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((operands): Condition => allOf(...operands)),
+      fc.array(tie("condition"), { maxLength: MAX_OPERANDS }).map((operands): Condition => anyOf(...operands)),
+      tie("condition").map((operand): Condition => not(operand)),
     ),
   })).condition;
 }
@@ -163,21 +200,31 @@ export function definesModel(definition: unknown): boolean {
   return refusalsOf(definition).length === 0;
 }
 
-/** The refusals that depend on the whole model, which a JSON Schema cannot state: a repeated dimension name, and a reference to a dimension or a value the model lacks, or declared later. */
-export const BEYOND_A_SCHEMA = [/ is declared more than once$/u, / which is not a dimension declared before it$/u, / mentions unknown dimension /u, / which it can never take$/u, / depends on unknown dimension /u, /, so its candidate could not be chosen from earlier values alone$/u];
+/** The refusals that depend on the whole model, which a JSON Schema cannot state: a repeated dimension name; a reference to a dimension or a value the model lacks, or declared later; a reference key that is not a dimension's name; and a condition trilean could not decide over the model's values, reading a dimension that can take `null` or comparing values of different kinds. */
+export const BEYOND_A_SCHEMA = [
+  / is declared more than once$/u,
+  / which is not a dimension declared before it$/u,
+  / mentions unknown dimension /u,
+  / which it can never take$/u,
+  / depends on unknown dimension /u,
+  /, so its candidate could not be chosen from earlier values alone$/u,
+  / is not a string naming a dimension$/u,
+  / can take null, which has no trilean value$/u,
+  /, and trilean compares values of one kind only$/u,
+];
 
 /** A way to damage a value at one node, each of which breaks the shape a schema describes in a different manner. */
 export const MUTATIONS = ["remove", "retype", "add-key", "resize", "wrap"] as const;
 export type Mutation = (typeof MUTATIONS)[number];
 
-/** Values put in a node's place: every JSON type, an empty container, a non-finite number, and a well-formed condition. */
-const REPLACEMENTS: readonly unknown[] = [null, true, 0, "", "x", [], {}, { unknown: 1 }, Number.NaN, Number.POSITIVE_INFINITY, [null], ["a", 1], { is: ["a", 1] }, { set: "a" }];
+/** Values put in a node's place: every JSON type, an empty container, a non-finite number, a well-formed condition and a node of a kind no condition is. */
+const REPLACEMENTS: readonly unknown[] = [null, true, 0, "", "x", [], {}, { unknown: 1 }, Number.NaN, Number.POSITIVE_INFINITY, [null], ["a", 1], { kind: "exists", operand: { kind: "reference", key: "a" } }, { kind: "textLiteral", value: "a" }];
 
-/** Keys put into an object: a misspelt key, another form's key, and a key the schema never has. */
+/** Keys put into an object: a misspelt key, another node kind's key, another rule form's key, and a key the schema never has. */
 const EXTRA_ENTRIES: readonly (readonly [string, unknown])[] = [
   ["extra", 1],
-  ["set", "a"],
-  ["requires", { set: "a" }],
+  ["operand", { kind: "reference", key: "a" }],
+  ["requires", { kind: "exists", operand: { kind: "reference", key: "a" } }],
   ["kind", "computed"],
   ["name", 1],
   ["activeWhen", 1],
@@ -238,7 +285,7 @@ function mutate(value: unknown, mutation: Mutation, at: number, pick: number): u
       return pick % 2 === 0 ? [...node, node[0] ?? null] : node.slice(0, -1);
     }
 
-    return pick % 2 === 0 ? [node] : { not: node };
+    return pick % 2 === 0 ? [node] : { kind: "not", operand: node };
   });
 }
 

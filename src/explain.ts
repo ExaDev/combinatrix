@@ -117,7 +117,7 @@ export function explainRecord(model: ModelParts, values: Readonly<Record<string,
       reasons.push({ kind: "not-a-value", dimension: name, value });
       continue;
     }
-    if (!isActive(dimension, assignment)) {
+    if (!isActive(step, assignment)) {
       if (given && value !== undefined) reasons.push({ kind: "inactive", dimension: name, value });
       assignment.set(name, undefined);
       continue;

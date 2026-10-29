@@ -14,10 +14,11 @@ export function* referenceCombinations(model: ModelParts): Generator<Record<stri
     const chosen = new Map(free.map((dimension, index) => [dimension.name, raw[index]]));
     const assignment = new Map<string, Value>();
     let derivable = true;
-    for (const { dimension, constraints } of steps) {
+    for (const step of steps) {
+      const { dimension, constraints } = step;
       if (!derivable) break;
 
-      if (!isActive(dimension, assignment)) {
+      if (!isActive(step, assignment)) {
         assignment.set(dimension.name, undefined);
         continue;
       }

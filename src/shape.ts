@@ -1,6 +1,6 @@
 import type { Condition } from "./condition";
 import type { Rule } from "./rule";
-import { isScalar } from "./value";
+import { treeShapeIssues } from "./trilean";
 
 /** Whether a value is a plain object, as JSON parses one. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -14,36 +14,9 @@ function hasExactKeys(value: Readonly<Record<string, unknown>>, keys: readonly s
   return own.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
-/** Whether a value read from JSON (or anywhere else) is a well-formed condition. Dimension names and values are checked against a model only by `defineModel`. */
+/** Whether a value read from JSON (or anywhere else) is a well-formed condition: a trilean predicate tree, as trilean's schema states it, with no key the schema does not define. Dimension names and values, and the node kinds an assignment of dimensions cannot resolve, are checked against a model only by `defineModel`. */
 export function isCondition(value: unknown): value is Condition {
-  if (!isRecord(value)) return false;
-
-  const [form, ...rest] = Object.keys(value);
-  if (form === undefined || rest.length > 0) return false;
-
-  const operand = value[form];
-  switch (form) {
-    case "is":
-      return Array.isArray(operand) && operand.length === 2 && typeof operand[0] === "string" && isScalar(operand[1]);
-    case "in": {
-      if (!Array.isArray(operand) || operand.length !== 2) return false;
-
-      const dimension: unknown = operand[0];
-      const values: unknown = operand[1];
-
-      return typeof dimension === "string" && Array.isArray(values) && values.every(isScalar);
-    }
-    case "unset":
-    case "set":
-      return typeof operand === "string";
-    case "all":
-    case "any":
-      return Array.isArray(operand) && operand.every(isCondition);
-    case "not":
-      return isCondition(operand);
-    default:
-      return false;
-  }
+  return treeShapeIssues(value).length === 0;
 }
 
 const RULE_FORMS = ["requires", "excludes", "implies"] as const;
@@ -67,6 +40,28 @@ export function isRule(value: unknown): value is Rule {
   if (form !== "implies") return isCondition(body);
 
   return Array.isArray(body) && body.length === 2 && body.every(isCondition);
+}
+
+/** The keys of a rule that hold one condition each, and the one that holds a pair. */
+const CONDITION_KEYS = ["when", "unless", "requires", "excludes"] as const;
+
+/** Where the trees under the given keys of an object fail trilean's schema, each issue naming the key and the path in the tree: the detail behind a refusal of a rule or an `activeWhen` that is not a well-formed condition. A key holding a list (`implies`) is searched element by element. */
+function treeDetails(value: Readonly<Record<string, unknown>>, keys: readonly string[], label: string): string[] {
+  return keys.flatMap((key) => {
+    if (!Object.hasOwn(value, key)) return [];
+
+    const held = value[key];
+    if (key === "implies" && Array.isArray(held)) return held.flatMap((tree: unknown, index) => treeShapeIssues(tree).map((issue) => `${label} implies[${String(index)}] at ${issue}`));
+
+    return treeShapeIssues(held).map((issue) => `${label} ${key} at ${issue}`);
+  });
+}
+
+/** Why a value is not a well-formed rule, labelled: the refusal itself, then where each of its conditions fails trilean's schema. Empty for a well-formed rule. `defineModel` and `parseRules` report a malformed rule with it. */
+export function ruleShapeIssues(value: unknown, label: string): string[] {
+  if (isRule(value)) return [];
+
+  return [`${label} is not a well-formed rule`, ...(isRecord(value) ? treeDetails(value, [...CONDITION_KEYS, "implies"], label) : [])];
 }
 
 /** The key each kind of dimension holds its domain or inputs in, besides the `kind`, `name` and optional `activeWhen` every dimension has. */
@@ -110,12 +105,12 @@ export function modelShapeIssues(definition: unknown): string[] {
   if (Array.isArray(dimensions)) {
     dimensions.forEach((dimension: unknown, index) => {
       const issue = dimensionShapeIssue(dimension);
-      if (issue !== undefined) issues.push(`dimension ${String(index)} ${issue}`);
+      if (issue !== undefined) issues.push(`dimension ${String(index)} ${issue}`, ...(isRecord(dimension) ? treeDetails(dimension, ["activeWhen"], `dimension ${String(index)}`) : []));
     });
   } else issues.push("the dimensions are not a list");
   if (Array.isArray(rules)) {
     rules.forEach((rule: unknown, index) => {
-      if (!isRule(rule)) issues.push(`rule ${String(index)} is not a well-formed rule`);
+      if (!isRule(rule)) issues.push(...ruleShapeIssues(rule, `rule ${String(index)}`));
     });
   } else if (rules !== undefined) issues.push("the rules are not a list");
 

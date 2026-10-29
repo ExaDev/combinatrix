@@ -1,14 +1,29 @@
 // examples/11-json-model.ts
 import { collect, ModelError, parseModel } from "combinatrix";
 
-// The contents of a model file. JSON has no `undefined`, so a dimension is unset only where its `activeWhen` does not hold.
+// The contents of a model file. Conditions are trilean predicate trees. JSON has no `undefined`, so a dimension is unset only where its `activeWhen` does not hold, and a comparison of a dimension that can be unset is guarded by `exists`, as a trilean comparison of an absent value is undecided rather than false.
 const text = `{
   "dimensions": [
     { "kind": "choice", "name": "os", "values": ["linux", "windows"] },
     { "kind": "choice", "name": "compress", "values": [true, false] },
-    { "kind": "first-valid", "name": "codec", "candidates": ["zstd", "brotli"], "activeWhen": { "is": ["compress", true] } }
+    {
+      "kind": "first-valid",
+      "name": "codec",
+      "candidates": ["zstd", "brotli"],
+      "activeWhen": { "kind": "memberOf", "op": "in", "operand": { "kind": "reference", "key": "compress" }, "candidates": [{ "kind": "booleanLiteral", "value": true }] }
+    }
   ],
-  "rules": [{ "name": "windows has no zstd", "excludes": { "is": ["codec", "zstd"] }, "when": { "is": ["os", "windows"] } }]
+  "rules": [
+    {
+      "name": "windows has no zstd",
+      "excludes": {
+        "kind": "and",
+        "left": { "kind": "exists", "operand": { "kind": "reference", "key": "codec" } },
+        "right": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "codec" }, "right": { "kind": "textLiteral", "value": "zstd" } }
+      },
+      "when": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "os" }, "right": { "kind": "textLiteral", "value": "windows" } }
+    }
+  ]
 }`;
 
 const data: unknown = JSON.parse(text);
@@ -24,13 +39,12 @@ for (const { values } of collect(model)) console.log(values);
 
 // A rule naming a dimension the model lacks is refused, with every such defect listed.
 try {
-  parseModel({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }], rules: [{ requires: { set: "arch" } }] });
+  parseModel({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }], rules: [{ requires: { kind: "exists", operand: { kind: "reference", key: "arch" } } }] });
 } catch (error) {
   if (!(error instanceof ModelError)) throw error;
 
   for (const issue of error.issues) console.log(issue);
 }
 /*
-rule 0 mentions unknown dimension "arch"
-constraint 0 depends on unknown dimension "arch"
+rule 0 at $.operand: mentions unknown dimension "arch"
 */

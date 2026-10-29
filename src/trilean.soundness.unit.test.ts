@@ -6,9 +6,8 @@ import type {
 } from "trilean";
 import { coalesce, evaluatePredicate } from "trilean";
 import { describe, expect, it } from "vitest";
-import type { Dimension, NonEmpty, PartialAssignment, Value } from "./index";
-import { choice } from "./index";
-import { trileanConstraint } from "./trilean";
+import type { Constraint, Dimension, NonEmpty, PartialAssignment, Value } from "./index";
+import { choice, defineModel } from "./index";
 
 /** The ratio values the model takes, and one strictly between them. */
 const LOW = 0.3;
@@ -28,6 +27,14 @@ const dimensions: readonly Dimension[] = NAMES.map((name) => {
 
   return choice(name, values);
 });
+
+/** The constraint a tree states as a rule's whole condition, built by the model as every rule's is. */
+function trileanConstraint(tree: PredicateNode): Constraint {
+  const [constraint] = defineModel({ dimensions, rules: [{ requires: tree }] }).constraints;
+  if (constraint === undefined) throw new Error("a model with one rule has one constraint");
+
+  return constraint;
+}
 
 const ref = (key: Name): ExpressionNode => ({ kind: "reference", key });
 const exists = (key: Name): PredicateNode => ({
@@ -162,11 +169,11 @@ function completions(partial: PartialAssignment): Map<string, Value>[] {
   );
 }
 
-describe("trileanConstraint: Kleene soundness", () => {
+describe("a trilean tree as a constraint: Kleene soundness", () => {
   it.each(TREES)(
     "%s: a definite verdict on a partial assignment is the verdict on every completion",
     (_, tree) => {
-      const constraint = trileanConstraint(tree, { dimensions });
+      const constraint = trileanConstraint(tree);
       for (const partial of partialAssignments()) {
         const verdict = constraint.evaluate(partial);
         const complete = completions(partial).map((assignment) =>
@@ -183,7 +190,7 @@ describe("trileanConstraint: Kleene soundness", () => {
   );
 
   it("the soundness check discriminates: a constraint that reads unassigned as unset breaks it", () => {
-    const constraint = trileanConstraint(exists("mode"), { dimensions });
+    const constraint = trileanConstraint(exists("mode"));
     const unsound = (assignment: PartialAssignment) =>
       constraint.evaluate(
         new Map([
@@ -199,7 +206,7 @@ describe("trileanConstraint: Kleene soundness", () => {
   it.each(TREES)(
     "%s: agrees with trilean's own evaluator on every complete assignment",
     async (_, tree) => {
-      const constraint = trileanConstraint(tree, { dimensions });
+      const constraint = trileanConstraint(tree);
       const complete = partialAssignments().filter(
         (each) => each.size === NAMES.length,
       );

@@ -1,5 +1,5 @@
 // examples/12-covering-array.ts
-import { choice, collect, count, coveringArray, defineModel, isCoveringArray } from "combinatrix";
+import { choice, collect, count, coveringArray, defineModel, is, isCoveringArray } from "combinatrix";
 
 const model = defineModel({
   dimensions: [
@@ -7,7 +7,7 @@ const model = defineModel({
     choice("arch", ["x64", "arm64"]),
     choice("runtime", ["node", "bun", "deno"]),
   ],
-  rules: [{ name: "bun is not offered on windows", excludes: { is: ["runtime", "bun"] }, when: { is: ["os", "windows"] } }],
+  rules: [{ name: "bun is not offered on windows", excludes: is("runtime", "bun"), when: is("os", "windows") }],
 });
 
 const rows = collect(model, { strategy: coveringArray({ strength: 2 }) }).map(({ values }) => values);
