@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "paths": { "combinatrix": ["../src/index.ts"] },
+    "types": ["node"]
+  },
+  "extends": "../tsconfig.json",
+  "include": ["."]
+}
