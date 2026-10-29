@@ -23,7 +23,7 @@ export interface StrategyContext<T extends ValueRecord = ValueRecord> {
 }
 
 /**
- * Chooses which combinations of the solution set to produce, and in what order. `full` produces all of them; a covering-array or sampling strategy from another package implements the same interface. Every combination a strategy yields is checked against the model, and one outside the solution set throws `StrategyError`.
+ * Chooses which combinations of the solution set to produce, and in what order. `full` produces all of them, `coveringArray` a covering array of them, and a sampling strategy from another package implements the same interface. Every combination a strategy yields is checked against the model, and one outside the solution set throws `StrategyError`.
  *
  * `T` is the type of one combination of the model the strategy is for. A strategy written for one model's type is refused, at compile time, for a model of another; unparameterised it is `ValueRecord` and works for any model, its rows checked at runtime only.
  *
