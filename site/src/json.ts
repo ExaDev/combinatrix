@@ -132,3 +132,69 @@ export function moveAt(root: Json, path: readonly JsonStep[], index: number, dir
     return current.with(index, neighbour).with(target, item);
   });
 }
+
+/** The keys of the object at `path`, in order. */
+export function keysAt(root: Json, path: readonly JsonStep[]): string[] {
+  return Object.keys(objectAt(root, path));
+}
+
+/** The object at `path` with an entry added at the end. Throws when the key is already there, which the caller checks first so it can say so. */
+export function addEntry(root: Json, path: readonly JsonStep[], key: string, value: Json): Json {
+  return updateIn(root, path, (current) => {
+    if (!isJsonObject(current)) throw new Error(`expected an object at ${path.join(".")}`);
+    if (Object.hasOwn(current, key)) throw new Error(`the object already has the key ${key}`);
+
+    return { ...current, [key]: value };
+  });
+}
+
+/** The object at `path` without an entry. */
+export function removeEntry(root: Json, path: readonly JsonStep[], key: string): Json {
+  return updateIn(root, path, (current) => {
+    if (!isJsonObject(current)) throw new Error(`expected an object at ${path.join(".")}`);
+    if (!Object.hasOwn(current, key)) throw new Error(`the object has no key ${key}`);
+
+    return omit(current, key);
+  });
+}
+
+/** The object at `path` with one key renamed in place, so the order of its entries is kept. Throws when the new key is another entry's. */
+export function renameEntry(root: Json, path: readonly JsonStep[], from: string, to: string): Json {
+  return updateIn(root, path, (current) => {
+    if (!isJsonObject(current)) throw new Error(`expected an object at ${path.join(".")}`);
+    if (!Object.hasOwn(current, from)) throw new Error(`the object has no key ${from}`);
+    if (from !== to && Object.hasOwn(current, to)) throw new Error(`the object already has the key ${to}`);
+
+    return Object.fromEntries(Object.entries(current).map(([key, value]) => [key === from ? to : key, value]));
+  });
+}
+
+/** The object at `path` with an entry swapped with its neighbour; unchanged at the end it is moving towards. Keys that read as array indices are ordered by the language, whatever is done here. */
+export function moveEntry(root: Json, path: readonly JsonStep[], key: string, direction: Direction): Json {
+  return updateIn(root, path, (current) => {
+    if (!isJsonObject(current)) throw new Error(`expected an object at ${path.join(".")}`);
+    const entries = Object.entries(current);
+    const index = entries.findIndex(([existing]) => existing === key);
+    if (index < 0) throw new Error(`the object has no key ${key}`);
+    const target = direction === "earlier" ? index - 1 : index + 1;
+    if (target < 0 || target >= entries.length) return current;
+
+    const moved = entries[index];
+    const neighbour = entries[target];
+    if (moved === undefined || neighbour === undefined) throw new Error("unreachable: both positions are within the entries");
+
+    return Object.fromEntries(entries.with(index, neighbour).with(target, moved));
+  });
+}
+
+/** The kinds of JSON value, as a form offers them. */
+export type JsonType = "text" | "number" | "boolean" | "null" | "list" | "object";
+
+export function jsonTypeOf(value: Json): JsonType {
+  if (value === null) return "null";
+  if (typeof value === "string") return "text";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+
+  return isJsonArray(value) ? "list" : "object";
+}

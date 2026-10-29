@@ -2,20 +2,19 @@ import type { Scalar } from "combinatrix";
 
 import type { Choice } from "./dom";
 import { button, h, labelled, select, textInput } from "./dom";
-import type { Json, JsonObject, JsonStep } from "./json";
+import type { Direction, Json, JsonObject } from "./json";
 import type { DimensionKind, DimensionView, RuleForm, RuleScope, RuleView, ScalarType } from "./modelEdit";
 import {
   addDimension,
   addRule,
   addValue,
-  convertScalar,
+  convertValueAt,
   DIMENSION_KIND_LABELS,
   DIMENSION_KINDS,
   dimensionNames,
   moveDimension,
   moveRule,
   moveValue,
-  newPredicate,
   parseNumber,
   removeDimension,
   removeRule,
@@ -34,8 +33,9 @@ import {
   setValue,
   viewOfModel,
 } from "./modelEdit";
-import type { ItemControls, TreeContext, TreeHost } from "./treeForm";
-import { choices, fieldId, predicateNode, rawJson } from "./treeForm";
+import type { ItemControls, TreeContext, TreeHost } from "./controls";
+import { choices, fieldId, rawJson, rowButtons } from "./controls";
+import { optionalCondition, predicateNode } from "./treeForm";
 
 /** What the page offers the form for editing the model. */
 export type FormHost = TreeHost;
@@ -52,33 +52,8 @@ const DIMENSIONS = "dimensions";
 const RULES = "rules";
 
 /** The buttons that move a card in its list and remove it. */
-function cardButtons(host: FormHost, spec: ItemControls & { readonly move: (model: JsonObject, direction: "earlier" | "later") => JsonObject; readonly remove: (model: JsonObject) => JsonObject }): HTMLElement {
-  const { position, count, noun, listPath } = spec;
-  const last = count - 1;
-  const field = (control: string): string => fieldId([...listPath, position], control);
-  const move = (direction: "earlier" | "later"): void => {
-    const target = direction === "earlier" ? position - 1 : position + 1;
-    const keepsMoving = direction === "earlier" ? target > 0 : target < last;
-    // The moved card is at `target` now. Focus stays on the button that moved it, unless that button is disabled at the end the card has reached, and then goes to the other one.
-    const control = (direction === "earlier") === keepsMoving ? "up" : "down";
-    host.edit((model) => spec.move(model, direction), { focus: fieldId([...listPath, target], control), announce: `Moved ${noun} ${direction === "earlier" ? "up" : "down"}.` });
-  };
-
-  return h(
-    "span",
-    { class: "item-buttons" },
-    button({ field: field("up"), ariaLabel: `Move ${noun} up`, label: "Up", small: true, disabled: position === 0, onClick: () => { move("earlier"); } }),
-    button({ field: field("down"), ariaLabel: `Move ${noun} down`, label: "Down", small: true, disabled: position === last, onClick: () => { move("later"); } }),
-    button({
-      field: field("remove"),
-      ariaLabel: `Remove ${noun}`,
-      label: "Remove",
-      small: true,
-      onClick: () => {
-        host.edit(spec.remove, { focus: fieldId(listPath, "add"), announce: `Removed ${noun}.` });
-      },
-    }),
-  );
+function cardButtons(host: FormHost, spec: ItemControls & { readonly move: (model: JsonObject, direction: Direction) => JsonObject; readonly remove: (model: JsonObject) => JsonObject }): HTMLElement {
+  return rowButtons(host, { noun: spec.noun, position: spec.position, count: spec.count, listPath: spec.listPath, pathAt: (at) => [...spec.listPath, at], move: spec.move, remove: spec.remove });
 }
 
 /** A value of a dimension's domain: a type menu, the value, and its buttons. */
@@ -95,7 +70,7 @@ function valueRow(host: FormHost, spec: { readonly index: number; readonly name:
     choices: SCALAR_TYPE_CHOICES,
     selected: type,
     onChange: (next: ScalarType) => {
-      host.edit((model) => setValue(model, index, position, convertScalar(value, next)));
+      host.edit((model) => convertValueAt(model, index, position, next));
     },
   });
 
@@ -141,33 +116,6 @@ function valueControl(host: FormHost, spec: { readonly index: number; readonly p
   });
 
   return h("span", { class: "field-with-problem" }, input, problem);
-}
-
-/** The condition that makes a part of the model apply, which may be absent: a button that adds one, or the condition with a button that removes it. */
-function optionalCondition(ctx: TreeContext, spec: { readonly path: readonly JsonStep[]; readonly node: Json | undefined; readonly label: string; readonly heading: string; readonly addLabel: string; readonly removeLabel: string; readonly set: (model: JsonObject, node: Json | undefined) => JsonObject }): HTMLElement {
-  const { path, node, label } = spec;
-  if (node === undefined) {
-    return h(
-      "div",
-      { class: "optional" },
-      button({
-        field: fieldId(path, "add"),
-        ariaLabel: `${label}: ${spec.addLabel}`,
-        label: spec.addLabel,
-        small: true,
-        onClick: () => {
-          ctx.host.edit((model) => spec.set(model, newPredicate(model, "exists")), { focus: fieldId(path, "kind"), announce: `Added the condition: ${label}.` });
-        },
-      }),
-    );
-  }
-
-  return h(
-    "div",
-    { class: "optional" },
-    h("div", { class: "optional-head" }, h("strong", {}, spec.heading), button({ field: fieldId(path, "remove-condition"), ariaLabel: `${label}: ${spec.removeLabel}`, label: spec.removeLabel, small: true, onClick: () => { ctx.host.edit((model) => spec.set(model, undefined), { focus: fieldId(path, "add"), announce: `Removed the condition: ${label}.` }); } })),
-    predicateNode(ctx, { path, node, label }),
-  );
 }
 
 function dimensionCard(ctx: TreeContext, spec: { readonly index: number; readonly count: number; readonly view: DimensionView }): HTMLElement {
@@ -252,9 +200,9 @@ function rawCard(ctx: TreeContext, spec: { readonly part: typeof DIMENSIONS | ty
   return h(
     "li",
     { class: "card" },
-    h("div", { class: "card-head" }, h("h4", {}, `${part === DIMENSIONS ? "Dimension" : "Rule"} ${String(index + 1)} (kept as JSON)`), cardButtons(ctx.host, { position: index, count, noun, listPath: [part], move: (model, direction) => move(model, index, direction), remove: (model) => remove(model, index) })),
-    h("p", { class: "hint" }, "The form has no controls for this. It is kept exactly as written; edit it here or in the JSON view."),
-    rawJson(ctx, { path: [part, index], value: json, ariaLabel: `${noun}, JSON` }),
+    h("div", { class: "card-head" }, h("h4", {}, `${part === DIMENSIONS ? "Dimension" : "Rule"} ${String(index + 1)} (not accepted by the schema)`), cardButtons(ctx.host, { position: index, count, noun, listPath: [part], move: (model, direction) => move(model, index, direction), remove: (model) => remove(model, index) })),
+    h("p", { class: "hint" }, "The schema does not accept this, so the form cannot draw it as controls. It is kept exactly as written; correct it here or in the JSON view."),
+    rawJson(ctx.host, { path: [part, index], value: json, ariaLabel: `${noun}, JSON` }),
   );
 }
 

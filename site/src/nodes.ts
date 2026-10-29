@@ -1,11 +1,14 @@
-import { ArithmeticOperatorSchema, ComparisonOperatorSchema, DurationUnitSchema, HitPolicySchema, MembershipOperatorSchema, TextComparisonOperatorSchema } from "trilean";
+import type { ExpressionNode, PredicateNode } from "trilean";
+import { ArithmeticOperatorSchema, ComparisonOperatorSchema, DurationUnitSchema, ExpressionNodeSchema, HitPolicySchema, MembershipOperatorSchema, PredicateNodeSchema, TextComparisonOperatorSchema } from "trilean";
 
 import { unreachable } from "./exhaustive";
 import type { Json, JsonObject } from "./json";
 import { isJsonArray, isJsonObject } from "./json";
 
 /**
- * The trilean tree nodes a model's conditions are made of, as JSON, and what the form can edit of them. A node is *structured* when its keys and their types are exactly those the form edits; any other node (a kind the form has no controls for, or one carrying a key it does not know) is *raw*, shown as JSON text and never rewritten, so every tree survives the form unchanged.
+ * The trilean tree nodes a model's conditions are made of, as JSON, and how the form reads them. Every kind that trilean's schemas define has a widget: the kinds are read from the schemas below, so a kind trilean adds is a compile error where a kind is listed and a failing test where a widget is drawn.
+ *
+ * A node is *structured* when its keys and their types are exactly those its kind's schema defines. Only data that is not a node the schema accepts (a kind the schema does not define, a key it does not define, a field of the wrong type) is *raw*: it is shown as JSON text and never rewritten, so nothing the form is not asked to change is lost.
  */
 
 export const COMPARISON_OPERATORS = ComparisonOperatorSchema.options;
@@ -22,14 +25,36 @@ export type ArithmeticOperator = (typeof ARITHMETIC_OPERATORS)[number];
 export type HitPolicy = (typeof HIT_POLICIES)[number];
 export type DurationUnit = (typeof DURATION_UNITS)[number];
 
-/** A node the form has no controls for, kept as it was read. `nodeKind` is its `kind` when it has a text one. */
+export type PredicateKind = PredicateNode["kind"];
+export type ExpressionKind = ExpressionNode["kind"];
+
+/** Every predicate kind of trilean's schema, in the schema's order. */
+export const PREDICATE_KINDS: readonly PredicateKind[] = PredicateNodeSchema.options.map((option) => option.shape.kind.value);
+
+/** Every expression kind of trilean's schema: its core union's, then the complex literal's two forms, which share one kind. */
+export const EXPRESSION_KINDS: readonly ExpressionKind[] = ((): ExpressionKind[] => {
+  const [core, complex] = ExpressionNodeSchema.options;
+
+  return [...new Set<ExpressionKind>([...core.options.map((option) => option.shape.kind.value), ...complex.options.map((option) => option.shape.kind.value)])];
+})();
+
+/**
+ * The kinds that trilean's schemas define and that combinatrix's `defineModel` nevertheless refuses in a model, each because it needs a resolver that an assignment of dimensions cannot back (a collection, a table, another tree or an external system) or a function registry, which is empty. The form builds and edits them like any other, and the page says so beside them. A test holds this list to what the library does.
+ */
+export const REFUSED_PREDICATE_KINDS: readonly PredicateKind[] = ["some", "every", "treeReference"];
+export const REFUSED_EXPRESSION_KINDS: readonly ExpressionKind[] = ["call", "lookup", "fold", "accumulator", "delegate", "treeReference"];
+
+/** A unit: a symbol for each dimension of measure with its exponent, such as `{ m: 1, s: -1 }`. */
+export type Unit = JsonObject;
+
+/** A node the schema does not accept, kept as it was read. `nodeKind` is its `kind` when it has a text one. */
 export interface RawView {
   readonly kind: "raw";
   readonly json: Json;
   readonly nodeKind: string | undefined;
 }
 
-/** A predicate node (one that is true, false or unknown) as the form edits it. The children are JSON again, classified when the form reaches them. */
+/** A predicate node as the form edits it. The children are JSON again, classified when the form reaches them. */
 export type PredicateView =
   | { readonly kind: "not"; readonly operand: Json }
   | { readonly kind: "and" | "or"; readonly left: Json; readonly right: Json }
@@ -38,6 +63,8 @@ export type PredicateView =
   | { readonly kind: "textCompare"; readonly op: TextComparisonOperator; readonly left: Json; readonly right: Json }
   | { readonly kind: "memberOf"; readonly op: MembershipOperator; readonly operand: Json; readonly candidates: readonly Json[] }
   | { readonly kind: "exists"; readonly operand: Json }
+  | { readonly kind: "some" | "every"; readonly collection: Json; readonly item: Json; readonly filter: Json | undefined }
+  | { readonly kind: "treeReference"; readonly key: Json }
   | RawView;
 
 /** One case of a conditional expression. */
@@ -46,56 +73,65 @@ export interface ConditionalCase {
   readonly then: Json;
 }
 
-/** An expression node (one that has a value) as the form edits it. */
+/** How a fold combines the items of a collection. */
+export type FoldCombiner = { readonly mode: "max" | "min"; readonly item: Json } | { readonly mode: "reduce"; readonly initial: Json; readonly combine: Json };
+
+export type FoldMode = FoldCombiner["mode"];
+
+export const FOLD_MODES: readonly FoldMode[] = ["max", "min", "reduce"];
+
+/** An expression node as the form edits it. */
 export type ExpressionView =
   | { readonly kind: "textLiteral" | "instantLiteral"; readonly value: string }
-  | { readonly kind: "numberLiteral"; readonly value: number }
+  | { readonly kind: "numberLiteral"; readonly value: number; readonly unit: Unit | undefined }
   | { readonly kind: "booleanLiteral"; readonly value: boolean }
   | { readonly kind: "durationLiteral"; readonly value: number; readonly unit: DurationUnit }
-  | { readonly kind: "complexLiteral"; readonly form: "rectangular"; readonly re: number; readonly im: number }
-  | { readonly kind: "complexLiteral"; readonly form: "polar"; readonly magnitude: number; readonly phase: number }
-  | { readonly kind: "reference"; readonly key: string }
+  | { readonly kind: "complexLiteral"; readonly form: "rectangular"; readonly re: number; readonly im: number; readonly unit: Unit | undefined }
+  | { readonly kind: "complexLiteral"; readonly form: "polar"; readonly magnitude: number; readonly phase: number; readonly unit: Unit | undefined }
+  | { readonly kind: "reference"; readonly key: Json; readonly unit: Unit | undefined }
   | { readonly kind: "arithmetic"; readonly op: ArithmeticOperator; readonly left: Json; readonly right: Json }
   | { readonly kind: "negate"; readonly operand: Json }
+  | { readonly kind: "call"; readonly fn: string; readonly args: readonly Json[] }
+  | { readonly kind: "lookup"; readonly table: Json; readonly keys: readonly Json[] }
   | { readonly kind: "conditional"; readonly hitPolicy: HitPolicy | undefined; readonly cases: readonly ConditionalCase[]; readonly fallback: Json }
+  | { readonly kind: "fold"; readonly collection: Json; readonly filter: Json | undefined; readonly combiner: FoldCombiner }
+  | { readonly kind: "accumulator" }
+  | { readonly kind: "delegate"; readonly system: string; readonly payload: Json }
+  | { readonly kind: "treeReference"; readonly key: Json }
   | RawView;
 
-export type PredicateKind = Exclude<PredicateView["kind"], "raw">;
-export type ExpressionKind = Exclude<ExpressionView["kind"], "raw">;
-
-/** The kinds the form builds, in the order its kind menus list them. */
-export const PREDICATE_KINDS: readonly PredicateKind[] = ["exists", "textCompare", "compare", "memberOf", "not", "and", "or", "allOf", "anyOf"];
-export const EXPRESSION_KINDS: readonly ExpressionKind[] = ["reference", "textLiteral", "numberLiteral", "booleanLiteral", "instantLiteral", "durationLiteral", "complexLiteral", "arithmetic", "negate", "conditional"];
-
-/**
- * The kinds trilean's schemas accept that the form shows as raw JSON: combinatrix refuses each in a model (`defineModel` reports which and why), because it needs a resolver that an assignment of dimensions cannot back, or a function registry that is empty. They are listed so that a test can prove every kind of trilean's schemas is either built by the form or listed here.
- */
-export const RAW_PREDICATE_KINDS: readonly string[] = ["some", "every", "treeReference"];
-export const RAW_EXPRESSION_KINDS: readonly string[] = ["call", "lookup", "fold", "accumulator", "delegate", "treeReference"];
-
 export const PREDICATE_KIND_LABELS: Readonly<Record<PredicateKind, string>> = {
-  exists: "is set",
-  textCompare: "compares text",
-  compare: "compares numbers",
-  memberOf: "is one of",
   not: "not",
   and: "both",
   or: "either",
   allOf: "all of",
   anyOf: "any of",
+  compare: "compares numbers",
+  textCompare: "compares text",
+  memberOf: "is one of",
+  exists: "is set",
+  some: "some item of a collection satisfies",
+  every: "every item of a collection satisfies",
+  treeReference: "another tree, by key",
 };
 
 export const EXPRESSION_KIND_LABELS: Readonly<Record<ExpressionKind, string>> = {
-  reference: "value of a dimension",
-  textLiteral: "text",
   numberLiteral: "number",
+  textLiteral: "text",
   booleanLiteral: "true or false",
   instantLiteral: "instant",
   durationLiteral: "duration",
   complexLiteral: "complex number",
+  reference: "value of a dimension",
   arithmetic: "arithmetic",
   negate: "negative of",
+  call: "function call",
+  lookup: "table lookup",
   conditional: "conditional",
+  fold: "fold over a collection",
+  accumulator: "accumulator (inside a fold)",
+  delegate: "delegate to another system",
+  treeReference: "another tree, by key",
 };
 
 export const COMPARISON_LABELS: Readonly<Record<ComparisonOperator, string>> = {
@@ -135,6 +171,12 @@ export const HIT_POLICY_LABELS: Readonly<Record<HitPolicy, string>> = {
   unique: "the one case that holds",
 };
 
+export const FOLD_MODE_LABELS: Readonly<Record<FoldMode, string>> = {
+  max: "the largest item",
+  min: "the smallest item",
+  reduce: "reduce with a starting value",
+};
+
 /** The `kind` of a node, when it is an object with a text one. */
 function nodeKindOf(json: Json): string | undefined {
   if (!isJsonObject(json)) return undefined;
@@ -164,7 +206,20 @@ function isMember<const Options extends readonly string[]>(options: Options, val
   return typeof value === "string" && options.some((option) => option === value);
 }
 
-/** The predicate a JSON value is, as far as the form can edit it. */
+/** Whether a value is a unit: an object whose every value is a number. */
+export function isUnit(value: Json | undefined): value is Unit {
+  return value !== undefined && isJsonObject(value) && Object.values(value).every((exponent) => typeof exponent === "number");
+}
+
+/** The unit of a node and whether it is well-formed: a node with a unit that is not one is not a node the schema accepts. */
+function unitOf(object: JsonObject): { readonly unit: Unit | undefined; readonly valid: boolean } {
+  const unit = object["unit"];
+  if (unit === undefined) return { unit: undefined, valid: true };
+
+  return isUnit(unit) ? { unit, valid: true } : { unit: undefined, valid: false };
+}
+
+/** The predicate a JSON value is, as far as the schema accepts it. */
 export function classifyPredicate(json: Json): PredicateView {
   if (!isJsonObject(json)) return raw(json);
   const kind = nodeKindOf(json);
@@ -198,6 +253,11 @@ export function classifyPredicate(json: Json): PredicateView {
     }
     case "exists":
       return hasKeys(json, ["kind", "operand"]) ? { kind, operand: need(json, "operand") } : raw(json);
+    case "some":
+    case "every":
+      return hasKeys(json, ["kind", "collection", "item"], ["filter"]) ? { kind, collection: need(json, "collection"), item: need(json, "item"), filter: json["filter"] } : raw(json);
+    case "treeReference":
+      return hasKeys(json, ["kind", "key"]) ? { kind, key: need(json, "key") } : raw(json);
     case undefined:
     default:
       return raw(json);
@@ -215,35 +275,41 @@ function conditionalCases(value: Json | undefined): readonly ConditionalCase[] |
   return cases;
 }
 
-/** The expression a JSON value is, as far as the form can edit it. A literal or reference carrying a `unit` is raw: dimension values carry none, so the form has no control for it. */
+function foldCombiner(value: Json | undefined): FoldCombiner | undefined {
+  if (value === undefined || !isJsonObject(value)) return undefined;
+  const mode = value["mode"];
+  if ((mode === "max" || mode === "min") && hasKeys(value, ["mode", "item"])) return { mode, item: need(value, "item") };
+
+  return mode === "reduce" && hasKeys(value, ["mode", "initial", "combine"]) ? { mode, initial: need(value, "initial"), combine: need(value, "combine") } : undefined;
+}
+
+/** The expression a JSON value is, as far as the schema accepts it. */
 export function classifyExpression(json: Json): ExpressionView {
   if (!isJsonObject(json)) return raw(json);
   const kind = nodeKindOf(json);
   const value = json["value"];
+  const { unit, valid } = unitOf(json);
   switch (kind) {
     case "textLiteral":
     case "instantLiteral":
       return hasKeys(json, ["kind", "value"]) && typeof value === "string" ? { kind, value } : raw(json);
     case "numberLiteral":
-      return hasKeys(json, ["kind", "value"]) && typeof value === "number" ? { kind, value } : raw(json);
+      return hasKeys(json, ["kind", "value"], ["unit"]) && valid && typeof value === "number" ? { kind, value, unit } : raw(json);
     case "booleanLiteral":
       return hasKeys(json, ["kind", "value"]) && typeof value === "boolean" ? { kind, value } : raw(json);
     case "durationLiteral": {
-      const unit = json["unit"];
+      const durationUnit = json["unit"];
 
-      return hasKeys(json, ["kind", "value", "unit"]) && typeof value === "number" && isMember(DURATION_UNITS, unit) ? { kind, value, unit } : raw(json);
+      return hasKeys(json, ["kind", "value", "unit"]) && typeof value === "number" && isMember(DURATION_UNITS, durationUnit) ? { kind, value, unit: durationUnit } : raw(json);
     }
     case "complexLiteral": {
       const { re, im, magnitude, phase } = json;
-      if (hasKeys(json, ["kind", "re", "im"]) && typeof re === "number" && typeof im === "number") return { kind, form: "rectangular", re, im };
+      if (hasKeys(json, ["kind", "re", "im"], ["unit"]) && valid && typeof re === "number" && typeof im === "number") return { kind, form: "rectangular", re, im, unit };
 
-      return hasKeys(json, ["kind", "magnitude", "phase"]) && typeof magnitude === "number" && typeof phase === "number" ? { kind, form: "polar", magnitude, phase } : raw(json);
+      return hasKeys(json, ["kind", "magnitude", "phase"], ["unit"]) && valid && typeof magnitude === "number" && typeof phase === "number" ? { kind, form: "polar", magnitude, phase, unit } : raw(json);
     }
-    case "reference": {
-      const key = json["key"];
-
-      return hasKeys(json, ["kind", "key"]) && typeof key === "string" ? { kind, key } : raw(json);
-    }
+    case "reference":
+      return hasKeys(json, ["kind", "key"], ["unit"]) && valid ? { kind, key: need(json, "key"), unit } : raw(json);
     case "arithmetic": {
       const op = json["op"];
 
@@ -251,6 +317,17 @@ export function classifyExpression(json: Json): ExpressionView {
     }
     case "negate":
       return hasKeys(json, ["kind", "operand"]) ? { kind, operand: need(json, "operand") } : raw(json);
+    case "call": {
+      const fn = json["fn"];
+      const args = json["args"];
+
+      return hasKeys(json, ["kind", "fn", "args"]) && typeof fn === "string" && args !== undefined && isJsonArray(args) ? { kind, fn, args } : raw(json);
+    }
+    case "lookup": {
+      const keys = json["keys"];
+
+      return hasKeys(json, ["kind", "table", "keys"]) && keys !== undefined && isJsonArray(keys) ? { kind, table: need(json, "table"), keys } : raw(json);
+    }
     case "conditional": {
       const hitPolicy = json["hitPolicy"];
       const cases = conditionalCases(json["cases"]);
@@ -259,13 +336,27 @@ export function classifyExpression(json: Json): ExpressionView {
 
       return isMember(HIT_POLICIES, hitPolicy) ? { kind, hitPolicy, cases, fallback: need(json, "fallback") } : raw(json);
     }
+    case "fold": {
+      const combiner = foldCombiner(json["combiner"]);
+
+      return hasKeys(json, ["kind", "collection", "combiner"], ["filter"]) && combiner !== undefined ? { kind, collection: need(json, "collection"), filter: json["filter"], combiner } : raw(json);
+    }
+    case "accumulator":
+      return hasKeys(json, ["kind"]) ? { kind } : raw(json);
+    case "delegate": {
+      const system = json["system"];
+
+      return hasKeys(json, ["kind", "system", "payload"]) && typeof system === "string" ? { kind, system, payload: need(json, "payload") } : raw(json);
+    }
+    case "treeReference":
+      return hasKeys(json, ["kind", "key"]) ? { kind, key: need(json, "key") } : raw(json);
     case undefined:
     default:
       return raw(json);
   }
 }
 
-/** What new nodes hold until the user edits them. A reference starts on the first dimension; with none yet it is empty, which the library reports as an unknown dimension until one is chosen. */
+/** What new nodes hold until the user edits them. A key or collection starts empty, which names nothing until one is chosen. */
 const EMPTY_TEXT = "";
 const ZERO = 0;
 const DEFAULT_INSTANT = "2000-01-01T00:00:00Z";
@@ -305,6 +396,14 @@ export function createPredicate(kind: PredicateKind, names: readonly string[], c
     case "allOf":
     case "anyOf":
       return { kind, operands: carried.predicates.length > 0 ? carried.predicates : [predicate(0)] };
+    case "some":
+    case "every": {
+      const filter = carried.predicates[1];
+
+      return filter === undefined ? { kind, collection: EMPTY_TEXT, item: predicate(0) } : { kind, collection: EMPTY_TEXT, item: predicate(0), filter };
+    }
+    case "treeReference":
+      return { kind, key: EMPTY_TEXT };
     default:
       return unreachable(kind);
   }
@@ -331,8 +430,20 @@ export function createExpression(kind: ExpressionKind, names: readonly string[],
       return { kind, op: "add", left: operand(0), right: operand(1) };
     case "negate":
       return { kind, operand: operand(0) };
+    case "call":
+      return { kind, fn: EMPTY_TEXT, args: carried };
+    case "lookup":
+      return { kind, table: EMPTY_TEXT, keys: carried };
     case "conditional":
       return { kind, cases: [{ when: createPredicate("exists", names), then: operand(0) }], fallback: operand(1) };
+    case "fold":
+      return { kind, collection: EMPTY_TEXT, combiner: { mode: "max", item: operand(0) } };
+    case "accumulator":
+      return { kind };
+    case "delegate":
+      return { kind, system: EMPTY_TEXT, payload: null };
+    case "treeReference":
+      return { kind, key: EMPTY_TEXT };
     default:
       return unreachable(kind);
   }
@@ -348,6 +459,9 @@ function carriedFromPredicate(view: PredicateView): Carried {
     case "allOf":
     case "anyOf":
       return { predicates: view.operands, expressions: [] };
+    case "some":
+    case "every":
+      return { predicates: view.filter === undefined ? [view.item] : [view.item, view.filter], expressions: [] };
     case "compare":
     case "textCompare":
       return { predicates: [], expressions: [view.left, view.right] };
@@ -355,6 +469,7 @@ function carriedFromPredicate(view: PredicateView): Carried {
       return { predicates: [], expressions: [view.operand, ...view.candidates] };
     case "exists":
       return { predicates: [], expressions: [view.operand] };
+    case "treeReference":
     case "raw":
       return NOTHING_CARRIED;
     default:
@@ -376,8 +491,14 @@ function carriedFromExpression(view: ExpressionView): readonly Json[] {
       return [view.left, view.right];
     case "negate":
       return [view.operand];
+    case "call":
+      return view.args;
+    case "lookup":
+      return view.keys;
     case "conditional":
       return [view.fallback];
+    case "fold":
+      return view.combiner.mode === "reduce" ? [view.combiner.initial, view.combiner.combine] : [view.combiner.item];
     case "textLiteral":
     case "instantLiteral":
     case "numberLiteral":
@@ -385,6 +506,9 @@ function carriedFromExpression(view: ExpressionView): readonly Json[] {
     case "durationLiteral":
     case "complexLiteral":
     case "reference":
+    case "accumulator":
+    case "delegate":
+    case "treeReference":
     case "raw":
       return [];
     default:
@@ -398,4 +522,19 @@ export function changeExpressionKind(current: Json, kind: ExpressionKind, names:
   if (view.kind === kind) return current;
 
   return createExpression(kind, names, carriedFromExpression(view));
+}
+
+/** A fold's combiner with its mode changed, keeping the expression it can: `reduce` starts from the item a largest-or-smallest fold took, and the item of one starts from the starting value of a reduce. */
+export function changeFoldMode(combiner: FoldCombiner, mode: FoldMode, names: readonly string[]): Json {
+  if (combiner.mode === mode) return combiner.mode === "reduce" ? { mode, initial: combiner.initial, combine: combiner.combine } : { mode, item: combiner.item };
+  const kept = combiner.mode === "reduce" ? combiner.initial : combiner.item;
+
+  return mode === "reduce" ? { mode, initial: kept, combine: createExpression("numberLiteral", names) } : { mode, item: kept };
+}
+
+/** The combiner at a node of a fold with its mode changed, from the combiner the model holds now. Data that is not a combiner is returned as it is. */
+export function changeFoldModeOf(current: Json, mode: FoldMode, names: readonly string[]): Json {
+  const combiner = foldCombiner(current);
+
+  return combiner === undefined ? current : changeFoldMode(combiner, mode, names);
 }

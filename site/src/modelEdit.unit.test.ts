@@ -14,6 +14,8 @@ const THOUSAND = 1000;
 const NEGATIVE_FRACTION = -2.5;
 const REFERENCES_IN_STRANGE_RULES = 3;
 const REFERENCES_IN_EVERY_KIND = 7;
+const RENAMED_REFERENCES_IN_FOLDING_RULES = 5;
+const KEPT_KEYS_IN_FOLDING_RULES = 2;
 
 const OS: Json = { kind: "reference", key: "os" };
 const WINDOWS: Json = { kind: "textLiteral", value: "windows" };
@@ -187,7 +189,7 @@ describe("renaming a dimension", () => {
   });
 
   it("renames inside nested conditions, but leaves a node it cannot edit exactly as it is", () => {
-    const opaque: Json = { kind: "some", collection: "os", item: { kind: "exists", operand: OS } };
+    const opaque: Json = { kind: "mystery", collection: "os", item: { kind: "exists", operand: OS } };
     const model: JsonObject = {
       dimensions: [{ kind: "choice", name: "os", values: ["a"] }],
       rules: [
@@ -201,6 +203,36 @@ describe("renaming a dimension", () => {
     expect(JSON.stringify(renamed["rules"]).match(/"key":"system"/g)).toHaveLength(REFERENCES_IN_STRANGE_RULES);
     expect(JSON.stringify(renamed["rules"])).toContain(JSON.stringify(opaque));
     expect(ruleAt(renamed, 1)).toEqual(ruleAt(model, 1));
+  });
+
+  it("renames inside the kinds that quantify, call, look up and fold, and leaves the keys of tree references alone", () => {
+    const n: Json = { kind: "reference", key: "n", unit: { m: 1 } };
+    const model: JsonObject = {
+      dimensions: [{ kind: "choice", name: "n", values: [1] }],
+      rules: [
+        {
+          requires: {
+            kind: "some",
+            collection: "n",
+            item: { kind: "exists", operand: n },
+            filter: {
+              kind: "compare",
+              op: "gt",
+              left: { kind: "call", fn: "f", args: [n] },
+              right: { kind: "fold", collection: "n", filter: { kind: "exists", operand: n }, combiner: { mode: "reduce", initial: n, combine: { kind: "lookup", table: "n", keys: [n, { kind: "treeReference", key: "n" }] } } },
+            },
+          },
+        },
+        { requires: { kind: "treeReference", key: "n" } },
+      ],
+    };
+
+    const text = JSON.stringify(renameDimension(model, 0, "m")["rules"]);
+
+    expect(text.match(/"key":"m"/g)).toHaveLength(RENAMED_REFERENCES_IN_FOLDING_RULES);
+    expect(text.match(/"key":"n"/g)).toHaveLength(KEPT_KEYS_IN_FOLDING_RULES);
+    expect(text).toContain('"unit":{"m":1}');
+    expect(text).toContain('"collection":"n"');
   });
 
   it("renames inside every expression kind that holds a reference", () => {
