@@ -28,11 +28,11 @@ function keyOf(model: AnyModel, values: Readonly<Record<string, Value>>): string
   return JSON.stringify(model.dimensions.map((dimension) => (Object.hasOwn(values, dimension.name) ? valueKey(values[dimension.name]) : "absent")));
 }
 
-/** The reference rank: the position of a record in the materialised solution set by linear scan, or `-1`. */
-function scanIndex(model: AnyModel, expected: readonly Combination<Readonly<Record<string, Value>>>[], values: Readonly<Record<string, Value>>): number {
-  const key = keyOf(model, values);
+/** The reference rank: the position of a record in the materialised solution set, or `-1`, from one linear scan that keys each combination by its values. The solution set has no repeated combination, so each key has one position. */
+function scanIndex(model: AnyModel, expected: readonly Combination<Readonly<Record<string, Value>>>[]): (values: Readonly<Record<string, Value>>) => number {
+  const positions = new Map(expected.map((combination, index) => [keyOf(model, combination.values), index]));
 
-  return expected.findIndex((combination) => keyOf(model, combination.values) === key);
+  return (values) => positions.get(keyOf(model, values)) ?? -1;
 }
 
 /** Every record that differs from a combination in one dimension, over each dimension's possible values and some it can never take. */
@@ -140,12 +140,13 @@ describe("indexOf and indexOfData", () => {
     const disagreements = seeds.filter((seed) => {
       const model = randomModel(seed);
       const expected = expectedOf(model);
+      const scanned = scanIndex(model, expected);
 
       return expected.some((combination) =>
         nearMisses(model, combination.values).some((record) => {
           const index = indexOfData(model, record);
 
-          return index !== scanIndex(model, expected, record) || (index === -1) !== !explainData(model, record).valid;
+          return index !== scanned(record) || (index === -1) !== !explainData(model, record).valid;
         }),
       );
     });
@@ -245,6 +246,13 @@ describe("derived, conditionally active and unset dimensions", () => {
     expect(indexOf(model, { os: "windows", compress: true, codec: "zstd", level: "fast", label: "windows-zstd" })).toBe(-1);
     expect(indexOf(model, { os: "linux", compress: true, codec: "gzip", level: "fast", label: "linux-gzip" })).toBe(-1);
     expect(indexOf(model, { os: "linux", compress: true, codec: "zstd", level: "fast", label: "linux-gzip" })).toBe(-1);
+  });
+
+  it("refuses at compile time a record that is not one of the model's combinations, as explain does", () => {
+    // @ts-expect-error "mac" is not a value of os
+    indexOf(model, { os: "mac", compress: undefined, codec: undefined, level: undefined, label: "mac-none" });
+    // @ts-expect-error codec, level and label are missing, which only indexOfData allows
+    indexOf(model, { os: "linux", compress: undefined });
   });
 
   it("takes the derived and inactive dimensions from the rest when data leaves them out", () => {
