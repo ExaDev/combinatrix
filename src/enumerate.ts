@@ -1,3 +1,4 @@
+import { combinationId } from "./engine";
 import { LimitExceededError, StrategyError } from "./errors";
 import { explain } from "./explain";
 import type { Model, ModelParts } from "./model";
@@ -41,13 +42,23 @@ export function* combinations<T extends Readonly<Record<string, Value>>>(model: 
   for (const values of strategy.select(strategyContext(model))) {
     if (limit !== undefined && produced === limit) throw new LimitExceededError(limit);
 
-    const explanation = explain(model, values);
-    if (!explanation.valid) throw new StrategyError(`strategy "${strategy.name}" produced a record outside the solution set: ${explanation.reasons.map((reason) => reason.kind).join(", ")}`);
-    if (!model.isTuple(values)) throw new StrategyError(`strategy "${strategy.name}" produced a record without every dimension of the model`);
+    if (!model.isTuple(values)) throw new StrategyError(`strategy "${strategy.name}" produced a record without every dimension of the model, or with a value outside a domain`);
 
     produced += 1;
-    yield { id: explanation.id, values };
+    yield { id: idOf(model, strategy, values), values };
   }
+}
+
+/**
+ * A combination's id, checking first that a strategy other than `full` produced a combination in the solution set. `full` is the search itself, held to the reference enumeration by its tests, so its output is not explained a second time.
+ */
+function idOf(model: ModelParts, strategy: Strategy, values: Readonly<Record<string, Value>>): string {
+  if (strategy === full) return combinationId(model.dimensions, values);
+
+  const explanation = explain(model, values);
+  if (!explanation.valid) throw new StrategyError(`strategy "${strategy.name}" produced a record outside the solution set: ${explanation.reasons.map((reason) => reason.kind).join(", ")}`);
+
+  return explanation.id;
 }
 
 /** Every combination the strategy chooses, as an array, refusing with `LimitExceededError` rather than materialising more than `limit`. */
