@@ -1,5 +1,7 @@
 import type { Value } from "combinatrix";
 
+import type { Opened } from "./address";
+import { ADDRESS_DEBOUNCE_MS, addressFor } from "./address";
 import type { SpawnWorker } from "./client";
 import { CancelledError, EngineClient } from "./client";
 import type { EditorState, ItemSwitch } from "./editorState";
@@ -51,6 +53,7 @@ const copyLink = byId("copy-link", HTMLButtonElement);
 const exportButton = byId("export", HTMLButtonElement);
 const importInput = byId("import", HTMLInputElement);
 const linkStatus = byId("link-status", HTMLParagraphElement);
+const addressStatus = byId("address-status", HTMLParagraphElement);
 const linkField = byId("link", HTMLInputElement);
 const saveName = byId("save-name", HTMLInputElement);
 const saveButton = byId("save", HTMLButtonElement);
@@ -101,6 +104,12 @@ let dimensions: readonly DimensionSummary[] | undefined;
 let validating = false;
 let operating = false;
 let debounce: ReturnType<typeof setTimeout> | undefined;
+
+/** The state and address the page opened with, once it has opened: the address bar shows this address whenever the page is in this state, and a link holding the state otherwise. */
+let opened: Opened | undefined;
+let addressTimer: ReturnType<typeof setTimeout> | undefined;
+/** Counts writes of the address, so that one superseded while its link was being made is dropped. */
+let addressRevision = 0;
 
 // Sending
 
@@ -210,6 +219,7 @@ function editorChanged(): void {
   refresh();
   clearTimeout(debounce);
   debounce = setTimeout(() => void validateEditor(), VALIDATE_DEBOUNCE_MS);
+  addressChanged();
 }
 
 // The form and the JSON view
@@ -484,10 +494,38 @@ function selectedIndex(): number | undefined {
   return index !== undefined && index >= 0 ? index : undefined;
 }
 
-async function copyLinkToClipboard(): Promise<void> {
+/** What a link to the page as it is now holds: the editor's text and the selected index. */
+function sharedState(): SharedState {
   const index = selectedIndex();
-  const shared: SharedState = index === undefined ? { model: editor.value } : { model: editor.value, index };
-  const link = await shareUrl(window.location.href, shared);
+
+  return index === undefined ? { model: editor.value } : { model: editor.value, index };
+}
+
+/** The address bar follows the page: it holds a link to the model and index shown, so copying it from the browser is the same as Copy link. */
+function addressChanged(): void {
+  clearTimeout(addressTimer);
+  addressTimer = setTimeout(() => void writeAddress(), ADDRESS_DEBOUNCE_MS);
+}
+
+async function writeAddress(): Promise<void> {
+  if (opened === undefined) return;
+
+  addressRevision += 1;
+  const revision = addressRevision;
+  const address = await addressFor(opened, window.location.href, sharedState());
+  if (revision !== addressRevision) return;
+
+  window.history.replaceState(window.history.state, "", address.href);
+  addressStatus.textContent = address.kind === "too-large" ? "This model is too large for the address bar, which has stopped following your edits. Share it as a gist." : "";
+}
+
+/** Records the page as opened: its address and the state it shows, which the address bar goes back to when the page is changed back. */
+function markOpened(): void {
+  opened = { href: window.location.href, state: sharedState() };
+}
+
+async function copyLinkToClipboard(): Promise<void> {
+  const link = await shareUrl(window.location.href, sharedState());
   linkField.value = link;
   linkField.hidden = false;
   try {
@@ -560,11 +598,10 @@ async function loadFromLocation(): Promise<boolean> {
 
     notice.hidden = true;
     setModel(restored.model);
+    if (restored.index !== undefined) indexInput.value = String(restored.index);
+    markOpened();
     await validateEditor();
-    if (restored.index !== undefined) {
-      indexInput.value = String(restored.index);
-      await atOperation();
-    }
+    if (restored.index !== undefined) await atOperation();
 
     return true;
   } catch (error) {
@@ -610,6 +647,7 @@ function start(): void {
   byId("covering", HTMLButtonElement).addEventListener("click", () => void coveringOperation());
   byId("at", HTMLButtonElement).addEventListener("click", () => void atOperation());
   byId("explain", HTMLButtonElement).addEventListener("click", () => void explainOperation());
+  indexInput.addEventListener("input", addressChanged);
   window.addEventListener("hashchange", () => void loadFromLocation());
 
   renderSaved();
@@ -620,6 +658,7 @@ function start(): void {
     if (example === undefined) throw new Error("unreachable: the starting example is one of the examples");
 
     setModel(exampleText(example));
+    markOpened();
   });
 }
 
