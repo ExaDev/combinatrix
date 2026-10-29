@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { STEPS_PER_ABORT_CHECK } from "./cancellation";
 import type { Strategy } from "./index";
-import { choice, collect, combinations, count, defineModel, diagnose, full, predicate } from "./index";
+import { choice, collect, combinations, count, defineModel, diagnose, full, isNonEmpty, predicate } from "./index";
 
 const REASON = new Error("stopped by the caller");
 const SIDE = 10;
@@ -28,7 +28,9 @@ function abortingModel(abortAt: number) {
       return true;
     },
   });
-  const model = defineModel({ dimensions: Array.from({ length: DIMENSION_COUNT }, (_, index) => choice(`d${String(index)}`, Array.from({ length: SIDE }, (_unused, value) => value))), constraints: [counting] });
+  const domain = Array.from({ length: SIDE }, (_, value) => value);
+  if (!isNonEmpty(domain)) throw new Error("a side has at least one value");
+  const model = defineModel({ dimensions: Array.from({ length: DIMENSION_COUNT }, (_, index) => choice(`d${String(index)}`, domain)), constraints: [counting] });
 
   return { model, signal: controller.signal, evaluations };
 }
