@@ -356,7 +356,7 @@ A rule is one of `{ requires: condition }`, `{ excludes: condition }` or `{ impl
 
 ### Diagnostics
 
-- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule).
+- `explain(model, combination)`: `{ valid: true, id }`, or `{ valid: false, reasons }` with every reason the combination is not in the solution set: a value set on an inactive dimension, an active conditional dimension left unset when its values do not list unset, a derived value that differs from the derived one, a first-valid dimension with no acceptable candidate, and each constraint that rejects it (with the rule it states, when it is a rule).
 - `explainData(model, data)`: the same for untyped data, also reporting data that is not an object, an unknown or missing dimension, a value outside its domain (never passed on to a constraint) and something that is not a value at all. Derived dimensions may be left out.
 - `diagnose(model, { limit?, signal? })`: `{ status: "empty" }` when nothing satisfies the model, otherwise `{ status: "satisfiable", count, deadValues }` listing every domain value and candidate that no combination takes.
 
