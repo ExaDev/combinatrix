@@ -1,3 +1,4 @@
+import { stepCheck } from "./cancellation";
 import type { Step } from "./engine";
 import { computeValue, firstCandidate, isActive, recordOf, stepsOf, unconditionalConstraints, verdictOf } from "./engine";
 import type { ModelParts } from "./model";
@@ -24,16 +25,27 @@ function admissible(step: Step, assignment: PartialAssignment): boolean {
   return step.constraints.every((constraint) => verdictOf(constraint, assignment) !== "invalid");
 }
 
+/** What restricts and interrupts `searchCombinations`; each may be absent. */
+export interface SearchOptions {
+  /** Restricts each dimension it names to that value. */
+  readonly fixed?: PartialAssignment | undefined;
+  /** Aborting it makes the search throw the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
 /**
- * The model's solution set by depth-first search over the dimensions in declaration order, abandoning a branch as soon as a constraint that mentions an assigned dimension answers `invalid` on the partial assignment. Because every constraint is monotone, an abandoned branch holds no solution, and because an inactive dimension offers unset alone, no tuple is produced twice; so the sequence equals `referenceCombinations`. A `fixed` assignment restricts each dimension it names to that value.
+ * The model's solution set by depth-first search over the dimensions in declaration order, abandoning a branch as soon as a constraint that mentions an assigned dimension answers `invalid` on the partial assignment. Because every constraint is monotone, an abandoned branch holds no solution, and because an inactive dimension offers unset alone, no tuple is produced twice; so the sequence equals `referenceCombinations`. The `fixed` option restricts each dimension it names to that value. An aborted `signal` makes the generator throw the signal's reason, before its first step if it is already aborted and otherwise within `STEPS_PER_ABORT_CHECK` steps of the abort.
  */
-export function* searchCombinations(model: ModelParts, fixed: PartialAssignment = new Map()): Generator<Record<string, Value>> {
+export function* searchCombinations(model: ModelParts, options: SearchOptions = {}): Generator<Record<string, Value>> {
+  const { fixed = new Map<string, Value>(), signal } = options;
+  const checkStep = stepCheck(signal);
   if (unconditionalConstraints(model).some((constraint) => verdictOf(constraint, new Map()) === "invalid")) return;
 
   const steps = stepsOf(model);
   const assignment = new Map<string, Value>();
 
   function* descend(depth: number): Generator<Record<string, Value>> {
+    checkStep();
     const step = steps[depth];
     if (step === undefined) {
       yield recordOf(model.dimensions, assignment);
@@ -54,9 +66,12 @@ export function* searchCombinations(model: ModelParts, fixed: PartialAssignment 
 }
 
 /**
- * The size of the solution set, by the same search as `searchCombinations` without building a record per combination. Where no remaining dimension is conditionally active, first-valid with constraints, or mentioned by a constraint, every combination of the remaining free values is a solution, so that subtree is counted as the product of their domain sizes. Returns `undefined` as soon as the count exceeds `limit`.
+ * The size of the solution set, by the same search as `searchCombinations` without building a record per combination. Where no remaining dimension is conditionally active, first-valid with constraints, or mentioned by a constraint, every combination of the remaining free values is a solution, so that subtree is counted as the product of their domain sizes. Returns `undefined` as soon as the count exceeds `limit`; with no limit it always returns the count. An aborted `signal` makes it throw the signal's reason, before its first step if it is already aborted and otherwise within `STEPS_PER_ABORT_CHECK` steps of the abort.
  */
-export function countSearch(model: ModelParts, limit: number): number | undefined {
+export function countSearch(model: ModelParts, limit: undefined, signal?: AbortSignal): number;
+export function countSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): number | undefined;
+export function countSearch(model: ModelParts, limit: number | undefined, signal?: AbortSignal): number | undefined {
+  const checkStep = stepCheck(signal);
   if (unconditionalConstraints(model).some((constraint) => verdictOf(constraint, new Map()) === "invalid")) return 0;
 
   const steps = stepsOf(model);
@@ -66,11 +81,12 @@ export function countSearch(model: ModelParts, limit: number): number | undefine
 
   /** Adds the solutions below `depth` to the total; false once the total exceeds the limit, which ends the search. */
   function descend(depth: number): boolean {
+    checkStep();
     const closed = unconstrainedFrom[depth];
     if (closed !== undefined) {
       total += closed;
 
-      return total <= limit;
+      return limit === undefined || total <= limit;
     }
     const step = steps[depth];
     if (step === undefined) throw new Error(`unreachable: the depth past the last step always has a closed count (depth ${String(depth)})`);

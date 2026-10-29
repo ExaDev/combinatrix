@@ -15,6 +15,8 @@ export interface StrategyContext {
   readonly test: (assignment: PartialAssignment) => Verdict;
   /** Every combination in the solution set that agrees with the assignment on each dimension it names, lazily and in enumeration order. With no assignment it is the whole solution set. */
   readonly completions: (assignment?: PartialAssignment) => Generator<Readonly<Record<string, Value>>>;
+  /** The caller's abort signal, when it gave one. `completions` already honours it; a strategy that searches in any other way should call `signal.throwIfAborted()` at a bounded interval of its own steps so that the throw carries the signal's reason. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -33,12 +35,13 @@ export const full: Strategy = {
   select: (context) => context.completions(),
 };
 
-/** The context a strategy is given for a model. */
-export function strategyContext(model: ModelParts): StrategyContext {
+/** The context a strategy is given for a model, carrying `signal` when one is given. */
+export function strategyContext(model: ModelParts, signal?: AbortSignal): StrategyContext {
   return {
+    ...(signal === undefined ? {} : { signal }),
     dimensions: model.dimensions,
     constraints: model.constraints,
     test: (assignment) => combinedVerdict(model.constraints, assignment),
-    completions: (assignment) => searchCombinations(model, assignment),
+    completions: (assignment) => searchCombinations(model, { fixed: assignment, signal }),
   };
 }
