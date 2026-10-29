@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+
+import type { Dimension, ModelDefinition } from "./index";
+import { choice, computed, defineModel, firstValid, ModelError, predicate, sampled } from "./index";
+
+function issuesOf<Ds extends readonly Dimension[]>(definition: ModelDefinition<Ds>): readonly string[] {
+  try {
+    defineModel(definition);
+  } catch (error) {
+    if (error instanceof ModelError) return error.issues;
+    throw error;
+  }
+  throw new Error("the model was accepted");
+}
+
+describe("defineModel", () => {
+  it("accepts a model and exposes its constraints, rules first", () => {
+    const rule = { requires: { set: "a" } } as const;
+    const custom = predicate({ reads: ["a"], test: () => true });
+    const model = defineModel({ dimensions: [choice("a", [undefined, 1])], rules: [rule], constraints: [custom] });
+    expect(model.constraints).toHaveLength(2);
+    expect(model.constraints[1]).toBe(custom);
+    expect(model.sources).toEqual([rule, undefined]);
+  });
+
+  it("takes a sampled dimension's points from its sampler", () => {
+    const points = [Math.SQRT1_2, Math.LN2];
+    const model = defineModel({ dimensions: [sampled("ratio", () => points)] });
+    expect(model.dimensions[0]).toMatchObject({ kind: "choice", values: points });
+  });
+
+  it.each<[string, ModelDefinition<readonly Dimension[]>, string]>([
+    ["a duplicate name", { dimensions: [choice("a", [1]), choice("a", [2])] }, 'dimension "a" is declared more than once'],
+    ["an empty name", { dimensions: [choice("", [1])] }, "a dimension has an empty name"],
+    ["an empty domain", { dimensions: [choice("a", [])] }, 'dimension "a" has no values'],
+    ["a repeated value", { dimensions: [choice("a", [1, 1])] }, 'dimension "a" lists 1 more than once'],
+    ["a non-finite number", { dimensions: [sampled("a", () => [Number.POSITIVE_INFINITY])] }, 'dimension "a" has value Infinity, which is not a JSON scalar'],
+    ["a computed dimension reading a later one", { dimensions: [computed("a", { reads: ["b"], compute: () => 1 }), choice("b", [1])] }, 'dimension "a" reads "b", which is not a dimension declared before it'],
+    ["activity depending on a later dimension", { dimensions: [choice("a", [1], { activeWhen: { set: "b" } }), choice("b", [1])] }, 'dimension "a" is active depending on "b", which is not a dimension declared before it'],
+    ["activity comparing with an impossible value", { dimensions: [choice("a", [1]), choice("b", [1], { activeWhen: { is: ["a", 2] } })] }, 'the activity of dimension "b" compares "a" with 2, which it can never take'],
+    ["a rule on an unknown dimension", { dimensions: [choice("a", [1])], rules: [{ requires: { set: "z" } }] }, 'rule 0 mentions unknown dimension "z"'],
+    ["a rule comparing with an impossible value", { dimensions: [choice("a", [1])], rules: [{ requires: { in: ["a", [1, "one"]] } }] }, 'rule 0 compares "a" with "one", which it can never take'],
+    ["a constraint on an unknown dimension", { dimensions: [choice("a", [1])], constraints: [predicate({ reads: ["z"], test: () => true })] }, 'constraint 0 depends on unknown dimension "z"'],
+    [
+      "a first-valid dimension constrained with a later one",
+      { dimensions: [firstValid("a", [1]), choice("b", [1])], rules: [{ requires: { is: ["a", 1] }, when: { set: "b" } }] },
+      'constraint 0 mentions first-valid dimension "a" and "b" declared after it, so its candidate could not be chosen from earlier values alone',
+    ],
+  ])("refuses %s", (_, definition, issue) => {
+    expect(issuesOf(definition)).toContain(issue);
+  });
+
+  it("lists every defect, not only the first", () => {
+    expect(issuesOf({ dimensions: [choice("a", []), choice("a", [1, 1])] })).toEqual(['dimension "a" has no values', 'dimension "a" lists 1 more than once', 'dimension "a" is declared more than once']);
+  });
+});
