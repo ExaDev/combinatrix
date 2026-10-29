@@ -4,7 +4,7 @@ import { execute } from "./engine";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonObject } from "./json";
 import type { RuleView } from "./modelEdit";
-import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, removeDimension, removeListItem, removeRule, removeValue, renameDimension, restate, ruleStatement, setRuleStatement, statementShape, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
+import { addDimension, addListItem, addRule, addValue, classifyDimension, classifyRule, displayProblem, EMPTY_MODEL, dimensionNames, moveDimension, moveListItem, moveRule, moveValue, removeDimension, removeListItem, removeRule, removeValue, renameDimension, restate, ruleStatement, setRuleStatement, statementShape, statementSlots, setActiveWhen, setDimensionKind, setNode, setRuleForm, setRuleName, setRuleScope, setValue, uniqueName, updateNode, viewOfModel } from "./modelEdit";
 
 /** Numbers the tests write into values, and how often a renamed reference is expected to occur in the two trees that hold them. */
 const NUMBER_VALUE = 3;
@@ -332,6 +332,11 @@ describe("rules", () => {
     expect(restate(IS_WINDOWS, "excludes", "requires", dimensions)).toBe(IS_WINDOWS);
     expect(restate(IS_WINDOWS, "requires", "implies", dimensions)).toEqual([IS_WINDOWS, { kind: "exists", operand: OS }]);
     expect(restate([IS_WINDOWS, OS], "implies", "excludes", dimensions)).toBe(IS_WINDOWS);
+  });
+
+  it("names where the children of a statement are: the condition, or the antecedent and the consequent", () => {
+    expect(statementSlots(IS_WINDOWS)).toEqual([[[]]]);
+    expect(statementSlots([IS_WINDOWS, OS])).toEqual([[[0], [1]]]);
   });
 
   it("names the two shapes a statement has", () => {

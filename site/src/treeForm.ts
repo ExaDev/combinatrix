@@ -16,12 +16,15 @@ import {
   classifyExpression,
   classifyPredicate,
   COMPARISON_LABELS,
+  combinerSlots,
+  complexLiteralSlots,
   COMPARISON_OPERATORS,
   createExpression,
   createPredicate,
   DURATION_UNITS,
   EXPRESSION_KIND_LABELS,
   EXPRESSION_KINDS,
+  expressionSlots,
   FOLD_MODE_LABELS,
   FOLD_MODES,
   HIT_POLICIES,
@@ -30,11 +33,14 @@ import {
   MEMBERSHIP_OPERATORS,
   PREDICATE_KIND_LABELS,
   PREDICATE_KINDS,
+  predicateSlots,
   REFUSED_EXPRESSION_KINDS,
   REFUSED_PREDICATE_KINDS,
   TEXT_COMPARISON_LABELS,
   TEXT_COMPARISON_OPERATORS,
 } from "./nodes";
+import type { Slots } from "./typeMemory";
+import { noSlots } from "./typeMemory";
 import { JSON_VOCABULARY, jsonValueEditor, unitEditor } from "./valueForm";
 
 /** The vocabularies of variants a node switches between: a predicate's kinds, an expression's kinds, a fold's modes and a complex literal's forms. Each node has one, since a predicate and an expression can have a kind of the same name. */
@@ -154,7 +160,7 @@ function frame(ctx: TreeContext, spec: NodeSpec, head: readonly (HTMLElement | u
 const RAW_VARIANT = "raw";
 
 /** What a kind menu is given, besides the node: the vocabulary its kinds are variants in, the choices, which is chosen, and how to change kind. */
-function kindSelect<T extends string>(ctx: TreeContext, spec: NodeSpec & { readonly vocabulary: string; readonly kinds: readonly Choice<T>[]; readonly selected: T | undefined; readonly heldLabel: string; readonly change: (current: Json, kind: T) => Json }): HTMLSelectElement {
+function kindSelect<T extends string>(ctx: TreeContext, spec: NodeSpec & { readonly vocabulary: string; readonly kinds: readonly Choice<T>[]; readonly selected: T | undefined; readonly heldLabel: string; readonly change: (current: Json, kind: T) => Json; readonly slots: (part: Json) => Slots }): HTMLSelectElement {
   return select({
     field: fieldId(spec.path, "kind"),
     ariaLabel: childLabel(spec.label, "kind"),
@@ -163,7 +169,7 @@ function kindSelect<T extends string>(ctx: TreeContext, spec: NodeSpec & { reado
     heldLabel: spec.heldLabel,
     onChange: (kind) => {
       const named = spec.kinds.find((choice) => choice.value === kind);
-      switchNode(ctx.host, { path: spec.path, vocabulary: spec.vocabulary, from: spec.selected ?? RAW_VARIANT, to: kind, convert: (current) => spec.change(current, kind), announce: `${spec.label} is now ${named?.label ?? kind}.` });
+      switchNode(ctx.host, { path: spec.path, vocabulary: spec.vocabulary, from: spec.selected ?? RAW_VARIANT, to: kind, convert: (current) => spec.change(current, kind), slots: spec.slots, announce: `${spec.label} is now ${named?.label ?? kind}.` });
     },
   });
 }
@@ -193,7 +199,7 @@ function valueField(ctx: TreeContext, spec: NodeSpec, part: { readonly field: st
 /** A predicate: a node that is true, false or unknown, with a kind menu and what its kind needs, nested to any depth. */
 export function predicateNode(ctx: TreeContext, spec: NodeSpec): HTMLElement {
   const view = classifyPredicate(spec.node);
-  const kind = kindSelect(ctx, { ...spec, vocabulary: PREDICATE_VOCABULARY, kinds: PREDICATE_CHOICES, selected: view.kind === "raw" ? undefined : view.kind, heldLabel: `Not a node the schema accepts: ${view.kind === "raw" ? (view.nodeKind ?? "no kind") : ""}`, change: (current, next: PredicateKind) => changePredicateKind(current, next, ctx.names) });
+  const kind = kindSelect(ctx, { ...spec, vocabulary: PREDICATE_VOCABULARY, slots: predicateSlots, kinds: PREDICATE_CHOICES, selected: view.kind === "raw" ? undefined : view.kind, heldLabel: `Not a node the schema accepts: ${view.kind === "raw" ? (view.nodeKind ?? "no kind") : ""}`, change: (current, next: PredicateKind) => changePredicateKind(current, next, ctx.names) });
   const predicate = (step: JsonStep, name: string, node: Json): HTMLElement => predicateNode(ctx, childSpec(spec, step, name, node));
   const expression = (step: JsonStep, name: string, node: Json): HTMLElement => expressionNode(ctx, childSpec(spec, step, name, node));
   const operator = <T extends string>(operators: readonly Choice<T>[], selected: T): HTMLElement => h("div", { class: "node-op" }, opSelect(ctx, { ...spec, operators, selected }));
@@ -267,7 +273,7 @@ function referenceKey(ctx: TreeContext, spec: NodeSpec, key: Json): HTMLElement 
         label: "Not a dimension",
         small: true,
         onClick: () => {
-          switchNode(ctx.host, { path: [...spec.path, "key"], vocabulary: JSON_VOCABULARY, from: jsonTypeOf(key), to: "null", convert: (current) => convertJson(current, "null"), announce: "The key is no longer a dimension." });
+          switchNode(ctx.host, { path: [...spec.path, "key"], vocabulary: JSON_VOCABULARY, from: jsonTypeOf(key), to: "null", convert: (current) => convertJson(current, "null"), slots: noSlots, announce: "The key is no longer a dimension." });
         },
       }),
     );
@@ -298,7 +304,7 @@ function foldCombiner(ctx: TreeContext, spec: NodeSpec, combiner: FoldCombiner):
     choices: FOLD_MODE_CHOICES,
     selected: combiner.mode,
     onChange: (next) => {
-      switchNode(ctx.host, { path, vocabulary: FOLD_MODE_VOCABULARY, from: combiner.mode, to: next, convert: (current) => changeFoldModeOf(current, next, ctx.names), announce: `${spec.label} now combines as ${FOLD_MODE_LABELS[next]}.` });
+      switchNode(ctx.host, { path, vocabulary: FOLD_MODE_VOCABULARY, from: combiner.mode, to: next, convert: (current) => changeFoldModeOf(current, next, ctx.names), slots: combinerSlots, announce: `${spec.label} now combines as ${FOLD_MODE_LABELS[next]}.` });
     },
   });
   const part = (step: string, name: string, node: Json): HTMLElement => expressionNode(ctx, { path: [...path, step], node, label: childLabel(spec.label, name) });
@@ -310,7 +316,7 @@ function foldCombiner(ctx: TreeContext, spec: NodeSpec, combiner: FoldCombiner):
 /** An expression: a node that has a value, with a kind menu and what its kind needs, nested to any depth. */
 export function expressionNode(ctx: TreeContext, spec: NodeSpec): HTMLElement {
   const view = classifyExpression(spec.node);
-  const kind = kindSelect(ctx, { ...spec, vocabulary: EXPRESSION_VOCABULARY, kinds: EXPRESSION_CHOICES, selected: view.kind === "raw" ? undefined : view.kind, heldLabel: `Not a node the schema accepts: ${view.kind === "raw" ? (view.nodeKind ?? "no kind") : ""}`, change: (current, next: ExpressionKind) => changeExpressionKind(current, next, ctx.names) });
+  const kind = kindSelect(ctx, { ...spec, vocabulary: EXPRESSION_VOCABULARY, slots: expressionSlots, kinds: EXPRESSION_CHOICES, selected: view.kind === "raw" ? undefined : view.kind, heldLabel: `Not a node the schema accepts: ${view.kind === "raw" ? (view.nodeKind ?? "no kind") : ""}`, change: (current, next: ExpressionKind) => changeExpressionKind(current, next, ctx.names) });
   const expression = (step: JsonStep, name: string, node: Json): HTMLElement => expressionNode(ctx, childSpec(spec, step, name, node));
   const at = (step: string): readonly JsonStep[] => [...spec.path, step];
   const note = refusedNote(view.kind !== "raw" && REFUSED_EXPRESSION_KINDS.includes(view.kind));
@@ -369,7 +375,7 @@ export function expressionNode(ctx: TreeContext, spec: NodeSpec): HTMLElement {
         selected: view.form,
         onChange: (next) => {
           const replacement: JsonObject = next === "rectangular" ? { kind: "complexLiteral", re: 0, im: 0 } : { kind: "complexLiteral", magnitude: 0, phase: 0 };
-          switchNode(ctx.host, { path: spec.path, vocabulary: COMPLEX_FORM_VOCABULARY, from: view.form, to: next, convert: () => (view.unit === undefined ? replacement : { ...replacement, unit: view.unit }), announce: `${spec.label} is now given as ${COMPLEX_FORM_CHOICES.find((choice) => choice.value === next)?.label ?? next}.` });
+          switchNode(ctx.host, { path: spec.path, vocabulary: COMPLEX_FORM_VOCABULARY, from: view.form, to: next, convert: () => (view.unit === undefined ? replacement : { ...replacement, unit: view.unit }), slots: complexLiteralSlots, announce: `${spec.label} is now given as ${COMPLEX_FORM_CHOICES.find((choice) => choice.value === next)?.label ?? next}.` });
         },
       });
       const parts: readonly (readonly [string, number])[] = view.form === "rectangular" ? [["re", view.re], ["im", view.im]] : [["magnitude", view.magnitude], ["phase", view.phase]];

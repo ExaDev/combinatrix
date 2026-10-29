@@ -4,9 +4,10 @@ import { ArithmeticOperatorSchema, ComparisonOperatorSchema, DurationUnitSchema,
 
 import { unreachable } from "./exhaustive";
 import type { Json, JsonObject } from "./json";
-import { isJsonArray, isJsonObject } from "./json";
+import { getIn, isJsonArray, isJsonObject } from "./json";
 import type { ScalarType } from "./scalars";
 import { carryScalar } from "./scalars";
+import type { Place, Slots } from "./typeMemory";
 
 /**
  * The trilean tree nodes a model's conditions are made of, as JSON, and how the form reads them. Every kind that trilean's schemas define has a widget: the kinds are read from the schemas below, so a kind trilean adds is a compile error where a kind is listed and a failing test where a widget is drawn.
@@ -452,32 +453,51 @@ export function createExpression(kind: ExpressionKind, names: readonly string[],
   }
 }
 
-function carriedFromPredicate(view: PredicateView): Carried {
+/** The places of the children of a node, relative to it, that a change of kind carries across: its predicates and its expressions, each in the order the kinds have places for them. */
+export function predicateSlots(node: Json): Slots {
+  const view = classifyPredicate(node);
+  const named = (key: string, items: readonly Json[]): Place[] => items.map((_, position) => [key, position]);
   switch (view.kind) {
     case "not":
-      return { predicates: [view.operand], expressions: [] };
+      return [[["operand"]], []];
     case "and":
     case "or":
-      return { predicates: [view.left, view.right], expressions: [] };
+      return [[["left"], ["right"]], []];
     case "allOf":
     case "anyOf":
-      return { predicates: view.operands, expressions: [] };
+      return [named("operands", view.operands), []];
     case "some":
     case "every":
-      return { predicates: view.filter === undefined ? [view.item] : [view.item, view.filter], expressions: [] };
+      return [view.filter === undefined ? [["item"]] : [["item"], ["filter"]], []];
     case "compare":
     case "textCompare":
-      return { predicates: [], expressions: [view.left, view.right] };
+      return [[], [["left"], ["right"]]];
     case "memberOf":
-      return { predicates: [], expressions: [view.operand, ...view.candidates] };
+      return [[], [["operand"], ...named("candidates", view.candidates)]];
     case "exists":
-      return { predicates: [], expressions: [view.operand] };
+      return [[], [["operand"]]];
     case "treeReference":
     case "raw":
-      return NOTHING_CARRIED;
+      return [[], []];
     default:
       return unreachable(view);
   }
+}
+
+/** The children at some places of a node, which the caller took from its slots. */
+function childrenAt(node: Json, places: readonly Place[]): Json[] {
+  return places.map((place) => {
+    const child = getIn(node, place);
+    if (child === undefined) throw new Error(`unreachable: ${place.join(".")} was taken from the slots of the node`);
+
+    return child;
+  });
+}
+
+function carriedFromPredicate(node: Json): Carried {
+  const [predicates = [], expressions = []] = predicateSlots(node);
+
+  return { predicates: childrenAt(node, predicates), expressions: childrenAt(node, expressions) };
 }
 
 /** The predicate with its kind changed, keeping the children the new kind has places for, in order: `both` to `all of` keeps both operands, `is set` to `compares text` keeps the dimension it reads. */
@@ -485,23 +505,26 @@ export function changePredicateKind(current: Json, kind: PredicateKind, names: r
   const view = classifyPredicate(current);
   if (view.kind === kind) return current;
 
-  return createPredicate(kind, names, carriedFromPredicate(view));
+  return createPredicate(kind, names, carriedFromPredicate(current));
 }
 
-function carriedFromExpression(view: ExpressionView): readonly Json[] {
+/** The places of the children of an expression, relative to it, that a change of kind carries across, in the order the kinds have places for them. */
+export function expressionSlots(node: Json): Slots {
+  const view = classifyExpression(node);
+  const named = (key: string, items: readonly Json[]): Place[] => items.map((_, position) => [key, position]);
   switch (view.kind) {
     case "arithmetic":
-      return [view.left, view.right];
+      return [[["left"], ["right"]]];
     case "negate":
-      return [view.operand];
+      return [[["operand"]]];
     case "call":
-      return view.args;
+      return [named("args", view.args)];
     case "lookup":
-      return view.keys;
+      return [named("keys", view.keys)];
     case "conditional":
-      return [view.fallback];
+      return [[["fallback"]]];
     case "fold":
-      return view.combiner.mode === "reduce" ? [view.combiner.initial, view.combiner.combine] : [view.combiner.item];
+      return [view.combiner.mode === "reduce" ? [["combiner", "initial"], ["combiner", "combine"]] : [["combiner", "item"]]];
     case "textLiteral":
     case "instantLiteral":
     case "numberLiteral":
@@ -513,10 +536,29 @@ function carriedFromExpression(view: ExpressionView): readonly Json[] {
     case "delegate":
     case "treeReference":
     case "raw":
-      return [];
+      return [[]];
     default:
       return unreachable(view);
   }
+}
+
+function carriedFromExpression(node: Json): readonly Json[] {
+  const [operands = []] = expressionSlots(node);
+
+  return childrenAt(node, operands);
+}
+
+/** The places of the children of a fold's combiner that a change of mode carries across: the item of a largest-or-smallest fold is the starting value of a reduce. */
+export function combinerSlots(node: Json): Slots {
+  const combiner = foldCombiner(node);
+  if (combiner === undefined) return [[]];
+
+  return [combiner.mode === "reduce" ? [["initial"], ["combine"]] : [["item"]]];
+}
+
+/** The places of what a complex literal keeps when it is given in the other form: its unit, which may be absent. */
+export function complexLiteralSlots(node: Json): Slots {
+  return isJsonObject(node) ? [[["unit"]]] : [[]];
 }
 
 /** The scalar type of the value a literal of each kind holds, for the kinds that hold one. */
@@ -537,7 +579,7 @@ export function changeExpressionKind(current: Json, kind: ExpressionKind, names:
   const carried = value === undefined || type === undefined ? undefined : carryScalar(value, type);
   if (carried !== undefined) return { kind, value: carried };
 
-  return createExpression(kind, names, carriedFromExpression(view));
+  return createExpression(kind, names, carriedFromExpression(current));
 }
 
 /** A fold's combiner with its mode changed, keeping the expression it can: `reduce` starts from the item a largest-or-smallest fold took, and the item of one starts from the starting value of a reduce. */

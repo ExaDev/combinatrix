@@ -17,6 +17,7 @@ const FIVE = 5;
 const SEVEN = 7;
 const TWELVE = 12;
 const ANSWER = 42;
+const NINE = 9;
 const FRACTION = -2.5;
 
 
@@ -322,6 +323,93 @@ describe("an expression with operands", () => {
     harness.choose(mode, "reduce");
 
     expect(harness.at(["rules", 0, "excludes", "left", "combiner"])).toEqual(reduce);
+    harness.destroy();
+  });
+});
+
+describe("an edit made to a child while the item is in another kind", () => {
+  const LINUX_IS: Json = { kind: "textCompare", op: "equals", left: OS, right: { kind: "textLiteral", value: "linux" } };
+
+  it("is kept when the item is switched back: the first operand of all of, edited as both's first side", () => {
+    const harness = new Harness(ruleModel({ kind: "allOf", operands: [LINUX_IS, exists(ARCH), exists(OS)] }));
+    harness.choose("rules.0.excludes:kind", "and");
+    harness.type("rules.0.excludes.left.right.value:value", "macos");
+    harness.choose("rules.0.excludes:kind", "allOf");
+
+    expect(harness.at(["rules", 0, "excludes", "operands"])).toEqual([{ ...LINUX_IS, right: { kind: "textLiteral", value: "macos" } }, exists(ARCH), exists(OS)]);
+    harness.destroy();
+  });
+
+  it("is kept for an arithmetic's left operand edited as the operand of a negation", () => {
+    const sum: Json = { kind: "arithmetic", op: "add", left: { kind: "numberLiteral", value: 1 }, right: { kind: "numberLiteral", value: 2 } };
+    const harness = new Harness(ruleModel({ kind: "compare", op: "eq", left: sum, right: { kind: "numberLiteral", value: 0 } }));
+    const left = "rules.0.excludes.left";
+    harness.choose(`${left}:kind`, "negate");
+    harness.type(`${left}.operand.value:value`, "9");
+    harness.choose(`${left}:kind`, "arithmetic");
+
+    expect(harness.at(["rules", 0, "excludes", "left"])).toEqual({ ...sum, left: { kind: "numberLiteral", value: NINE } });
+    harness.destroy();
+  });
+
+  it("is kept when it was made two levels down, and the operand it is in is still the one that is carried", () => {
+    const nested: Json = { kind: "not", operand: LINUX_IS };
+    const harness = new Harness(ruleModel({ kind: "allOf", operands: [nested, exists(ARCH), exists(OS)] }));
+    harness.choose("rules.0.excludes:kind", "and");
+    harness.type("rules.0.excludes.left.operand.right.value:value", "macos");
+    harness.choose("rules.0.excludes:kind", "allOf");
+
+    expect(harness.at(["rules", 0, "excludes", "operands", 0, "operand", "right", "value"])).toBe("macos");
+    expect(harness.at(["rules", 0, "excludes", "operands", 2])).toEqual(exists(OS));
+    harness.destroy();
+  });
+
+  it("is kept through a kind that has room for fewer operands, and the operand it has no room for survives", () => {
+    const harness = new Harness(ruleModel({ kind: "allOf", operands: [LINUX_IS, exists(ARCH), exists(OS)] }));
+    harness.choose("rules.0.excludes:kind", "not");
+    harness.type("rules.0.excludes.operand.right.value:value", "macos");
+    harness.choose("rules.0.excludes:kind", "and");
+    harness.choose("rules.0.excludes:kind", "allOf");
+
+    expect(harness.at(["rules", 0, "excludes", "operands", 0, "right", "value"])).toBe("macos");
+    expect(harness.at(["rules", 0, "excludes", "operands", 1])).toEqual(exists(ARCH));
+    expect(harness.at(["rules", 0, "excludes", "operands", 2])).toEqual(exists(OS));
+    harness.destroy();
+  });
+
+  it("brings what was remembered of its own items with it, so a type switched inside the child can be undone", () => {
+    const sum: Json = { kind: "arithmetic", op: "add", left: { kind: "textLiteral", value: "keep" }, right: { kind: "numberLiteral", value: 2 } };
+    const harness = new Harness(ruleModel({ kind: "compare", op: "eq", left: sum, right: { kind: "numberLiteral", value: 0 } }));
+    const left = "rules.0.excludes.left";
+    harness.choose(`${left}:kind`, "negate");
+    harness.choose(`${left}.operand:kind`, "numberLiteral");
+    harness.choose(`${left}:kind`, "arithmetic");
+    expect(harness.at(["rules", 0, "excludes", "left", "left"])).toEqual({ kind: "numberLiteral", value: 0 });
+    harness.choose(`${left}.left:kind`, "textLiteral");
+
+    expect(harness.at(["rules", 0, "excludes", "left", "left"])).toEqual({ kind: "textLiteral", value: "keep" });
+    harness.destroy();
+  });
+
+  it("is kept for the antecedent of a rule edited as its condition, with the consequent from memory", () => {
+    const pair: Json = [LINUX_IS, exists(ARCH)];
+    const harness = new Harness(modelOf({ dimensions: [{ kind: "choice", name: "os", values: ["linux"] }, { kind: "choice", name: "arch", values: ["x64"] }], rules: [{ implies: pair }] }));
+    harness.choose("rules.0:form", "excludes");
+    harness.type("rules.0.excludes.right.value:value", "macos");
+    harness.choose("rules.0:form", "implies");
+
+    expect(harness.at(["rules", 0, "implies"])).toEqual([{ ...LINUX_IS, right: { kind: "textLiteral", value: "macos" } }, exists(ARCH)]);
+    harness.destroy();
+  });
+
+  it("is kept for a complex literal's unit added in the other form", () => {
+    const harness = new Harness(ruleModel({ kind: "compare", op: "eq", left: { kind: "complexLiteral", re: 3, im: 4 }, right: { kind: "numberLiteral", value: 0 } }));
+    const left = "rules.0.excludes.left";
+    harness.choose(`${left}:form`, "polar");
+    harness.click(`${left}.unit:add`);
+    harness.choose(`${left}:form`, "rectangular");
+
+    expect(harness.at(["rules", 0, "excludes", "left"])).toEqual({ kind: "complexLiteral", re: 3, im: 4, unit: {} });
     harness.destroy();
   });
 });

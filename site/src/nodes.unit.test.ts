@@ -3,18 +3,23 @@ import { describe, expect, it } from "vitest";
 
 import { execute } from "./engine";
 import type { Json } from "./json";
+import { getIn } from "./json";
 import {
   changeExpressionKind,
   changeFoldMode,
   changePredicateKind,
   classifyExpression,
   classifyPredicate,
+  combinerSlots,
+  complexLiteralSlots,
   createExpression,
   createPredicate,
   EXPRESSION_KIND_LABELS,
   EXPRESSION_KINDS,
+  expressionSlots,
   PREDICATE_KIND_LABELS,
   PREDICATE_KINDS,
+  predicateSlots,
   REFUSED_EXPRESSION_KINDS,
   REFUSED_PREDICATE_KINDS,
 } from "./nodes";
@@ -241,6 +246,38 @@ describe("changing kind", () => {
     expect(changeExpressionKind({ kind: "textLiteral", value: "yes" }, "booleanLiteral", NAMES)).toEqual({ kind: "booleanLiteral", value: true });
     expect(changeExpressionKind({ kind: "numberLiteral", value: 1 }, "booleanLiteral", NAMES)).toEqual({ kind: "booleanLiteral", value: true });
     expect(changeExpressionKind({ kind: "booleanLiteral", value: false }, "numberLiteral", NAMES)).toEqual({ kind: "numberLiteral", value: 0 });
+  });
+
+  it("names, for every kind, the places of the children a change of kind carries, which are the children it carries", () => {
+    for (const kind of PREDICATE_KINDS) {
+      const node = createPredicate(kind, NAMES);
+      const [predicates = [], expressions = []] = predicateSlots(node);
+      const children = (places: readonly (readonly (string | number)[])[]): (Json | undefined)[] => places.map((place) => getIn(node, place));
+
+      expect(children(predicates).every((child) => child !== undefined), kind).toBe(true);
+      expect(children(expressions).every((child) => child !== undefined), kind).toBe(true);
+      expect(new Set([...predicates, ...expressions].map((place) => place.join("."))).size, kind).toBe(predicates.length + expressions.length);
+    }
+    for (const kind of EXPRESSION_KINDS) {
+      const node = createExpression(kind, NAMES);
+      const [operands = []] = expressionSlots(node);
+
+      expect(operands.every((place) => getIn(node, place) !== undefined), kind).toBe(true);
+    }
+  });
+
+  it("gives the same positions to the same child in the kinds that carry it", () => {
+    const both: Json = { kind: "and", left: createPredicate("exists", NAMES), right: createPredicate("not", NAMES) };
+    const many: Json = { kind: "allOf", operands: [createPredicate("exists", NAMES), createPredicate("not", NAMES), createPredicate("exists", NAMES)] };
+
+    expect(predicateSlots(both)).toEqual([[["left"], ["right"]], []]);
+    expect(predicateSlots(many)).toEqual([[["operands", 0], ["operands", 1], ["operands", 2]], []]);
+    expect(predicateSlots(createPredicate("memberOf", NAMES))[1]).toEqual([["operand"], ["candidates", 0]]);
+    expect(expressionSlots(createExpression("arithmetic", NAMES))).toEqual([[["left"], ["right"]]]);
+    expect(expressionSlots(createExpression("fold", NAMES))).toEqual([[["combiner", "item"]]]);
+    expect(combinerSlots({ mode: "reduce", initial: REFERENCE_OS, combine: REFERENCE_ARCH })).toEqual([[["initial"], ["combine"]]]);
+    expect(combinerSlots({ mode: "max", item: REFERENCE_OS })).toEqual([[["item"]]]);
+    expect(complexLiteralSlots({ kind: "complexLiteral", re: 1, im: 1 })).toEqual([[["unit"]]]);
   });
 
   it("changes a raw node to a built one, and every kind to every other without throwing", () => {

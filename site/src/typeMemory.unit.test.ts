@@ -1,22 +1,24 @@
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Json } from "./json";
-import type { Memory, Place, Switch } from "./typeMemory";
-import { forgetInside, forgetWithin, NO_MEMORY, switchVariant } from "./typeMemory";
+import type { Json, JsonObject } from "./json";
+import { isJsonArray, isJsonObject } from "./json";
+import type { Memory, Place, Slots, Switch } from "./typeMemory";
+import { forgetInside, forgetWithin, noSlots, NO_MEMORY, switchVariant } from "./typeMemory";
 
 const PLACE: Place = ["rules", 0, "excludes", "right"];
 const TEXT: Json = { kind: "textLiteral", value: " windows " };
 const NUMBER: Json = { kind: "numberLiteral", value: 7, unit: { m: 1 } };
 const DEFAULT_NUMBER: Json = { kind: "numberLiteral", value: 0 };
 const DEFAULT_TEXT: Json = { kind: "textLiteral", value: "" };
+const DEFAULT_BOOLEAN: Json = { kind: "booleanLiteral", value: true };
 /** The index of the tenth rule, whose digits start with those of the index of the second. */
 const TENTH_RULE = 10;
-const DEFAULT_BOOLEAN: Json = { kind: "booleanLiteral", value: true };
+const SECOND_RULE = 1;
 
-/** The switch of the item at a place from one variant to another, given the part now and the part a conversion makes. */
+/** The switch of the item at a place from one variant to another, given the part now and the part a conversion makes. Without slots, as the types of a value have none. */
 function moving(place: Place, from: string, to: string): (current: Json, converted: Json, inside?: Switch["inside"]) => Switch {
-  return (current, converted, inside = "kept") => ({ place, from, to, current, convert: () => converted, inside });
+  return (current, converted, inside = "kept") => ({ place, vocabulary: "v", from, to, current, convert: () => converted, slots: noSlots, inside });
 }
 
 describe("switchVariant", () => {
@@ -86,6 +88,14 @@ describe("switchVariant", () => {
     expect(backAtFirst.part).toBe(TEXT);
   });
 
+  it("keeps the vocabularies of one place apart", () => {
+    const asKind = switchVariant(NO_MEMORY, { ...moving(PLACE, "text", "number")(TEXT, DEFAULT_NUMBER), vocabulary: "kind" });
+    const asForm = switchVariant(asKind.memory, { ...moving(PLACE, "text", "number")(DEFAULT_TEXT, DEFAULT_BOOLEAN), vocabulary: "form" });
+    const backAsKind = switchVariant(asForm.memory, { ...moving(PLACE, "number", "text")(asForm.part, DEFAULT_BOOLEAN), vocabulary: "kind" });
+
+    expect(backAsKind.part).toBe(TEXT);
+  });
+
   it("tells a step that is a number from one that is text of the same digits", () => {
     const asNumber = switchVariant(NO_MEMORY, moving(["a", 0], "text", "number")(TEXT, DEFAULT_NUMBER));
     const asText = switchVariant(asNumber.memory, moving(["a", "0"], "number", "text")(NUMBER, DEFAULT_BOOLEAN));
@@ -147,8 +157,128 @@ describe("what is remembered of the items inside", () => {
   });
 });
 
+/** Parts that hold their children in a list, `kids` or `items`, as the variants of a vocabulary whose kinds keep their operands in different keys do, with a name of the variant and a field of their own. */
+function holder(variant: string, key: "kids" | "items", children: readonly Json[]): JsonObject {
+  return { variant, own: `own of ${variant}`, [key]: children };
+}
+
+function childSlots(part: Json): Slots {
+  if (!isJsonObject(part)) return [];
+  const kids = part["kids"];
+  const items = part["items"];
+  if (kids !== undefined && isJsonArray(kids)) return [kids.map((_, position): Place => ["kids", position])];
+
+  return [items !== undefined && isJsonArray(items) ? items.map((_, position): Place => ["items", position]) : []];
+}
+
+/** The switch of the item at ["n"] between variants that keep their children in lists. */
+function between(from: string, to: string): (current: Json, converted: Json) => Switch {
+  return (current, converted) => ({ place: ["n"], vocabulary: "children", from, to, current, convert: () => converted, slots: childSlots, inside: "kept" });
+}
+
+const X: Json = { kind: "textLiteral", value: "x" };
+const Y: Json = { kind: "textLiteral", value: "y" };
+const Z: Json = { kind: "textLiteral", value: "z" };
+const EDITED: Json = { kind: "textLiteral", value: "edited" };
+const FILLER: Json = { kind: "textLiteral", value: "" };
+
+describe("the children of a part", () => {
+  it("keep an edit made in another variant, and the rest of the remembered part comes from memory", () => {
+    const away = switchVariant(NO_MEMORY, between("three", "two")(holder("three", "kids", [X, Y, Z]), holder("two", "kids", [X, Y])));
+    const back = switchVariant(away.memory, between("two", "three")(holder("two", "kids", [EDITED, Y]), holder("three", "kids", [])));
+
+    expect(back.part).toEqual(holder("three", "kids", [EDITED, Y, Z]));
+  });
+
+  it("do not displace what is remembered when they are only as the switch produced them", () => {
+    const toOne = switchVariant(NO_MEMORY, between("three", "one")(holder("three", "kids", [X, Y, Z]), holder("one", "kids", [X])));
+    const toTwo = switchVariant(toOne.memory, between("one", "two")(toOne.part, holder("two", "kids", [X, FILLER])));
+    const back = switchVariant(toTwo.memory, between("two", "three")(toTwo.part, holder("three", "kids", [])));
+
+    expect(back.part).toEqual(holder("three", "kids", [X, Y, Z]));
+  });
+
+  it("keep an edit made in a variant that was passed through, in a variant that has room for it", () => {
+    const toOne = switchVariant(NO_MEMORY, between("three", "one")(holder("three", "kids", [X, Y, Z]), holder("one", "kids", [X])));
+    const toTwo = switchVariant(toOne.memory, between("one", "two")(holder("one", "kids", [EDITED]), holder("two", "kids", [EDITED, FILLER])));
+    const back = switchVariant(toTwo.memory, between("two", "three")(toTwo.part, holder("three", "kids", [])));
+
+    expect(back.part).toEqual(holder("three", "kids", [EDITED, Y, Z]));
+  });
+
+  it("take an edit made in the variant a part was left for into every variant that was left behind", () => {
+    const toTwo = switchVariant(NO_MEMORY, between("three", "two")(holder("three", "kids", [X, Y, Z]), holder("two", "kids", [X, Y])));
+    const toOne = switchVariant(toTwo.memory, between("two", "one")(toTwo.part, holder("one", "kids", [X])));
+    const editedOne = holder("one", "kids", [EDITED]);
+    const toThree = switchVariant(toOne.memory, between("one", "three")(editedOne, holder("three", "kids", [])));
+    const toTwoAgain = switchVariant(toThree.memory, between("three", "two")(toThree.part, holder("two", "kids", [])));
+
+    expect(toThree.part).toEqual(holder("three", "kids", [EDITED, Y, Z]));
+    expect(toTwoAgain.part).toEqual(holder("two", "kids", [EDITED, Y]));
+  });
+
+  it("keep the fields of the variant that are not children as it left them", () => {
+    const away = switchVariant(NO_MEMORY, between("three", "two")({ ...holder("three", "kids", [X, Y, Z]), own: "typed" }, holder("two", "kids", [X, Y])));
+    const back = switchVariant(away.memory, between("two", "three")(holder("two", "kids", [EDITED, Y]), holder("three", "kids", [])));
+
+    expect(back.part).toEqual({ ...holder("three", "kids", [EDITED, Y, Z]), own: "typed" });
+  });
+
+  it("are the same child in variants that keep them under different keys", () => {
+    const away = switchVariant(NO_MEMORY, between("kids", "items")(holder("kids", "kids", [X, Y]), holder("items", "items", [X])));
+    const back = switchVariant(away.memory, between("items", "kids")(holder("items", "items", [EDITED]), holder("kids", "kids", [])));
+
+    expect(back.part).toEqual(holder("kids", "kids", [EDITED, Y]));
+  });
+
+  it("can be absent: an optional child added in one variant is added to the others, and removed from them when removed", () => {
+    const optional = (variant: string, unit?: Json): Json => (unit === undefined ? { variant } : { variant, unit });
+    const unitSlots = (): Slots => [[["unit"]]];
+    const switching = (from: string, to: string, current: Json, converted: Json): Switch => ({ place: ["n"], vocabulary: "form", from, to, current, convert: () => converted, slots: unitSlots, inside: "kept" });
+    const away = switchVariant(NO_MEMORY, switching("a", "b", optional("a"), optional("b")));
+    const withUnit = switchVariant(away.memory, switching("b", "a", optional("b", { m: 1 }), optional("a")));
+    const again = switchVariant(withUnit.memory, switching("a", "b", withUnit.part, optional("b")));
+    const without = switchVariant(again.memory, switching("b", "a", optional("b"), optional("a")));
+
+    expect(withUnit.part).toEqual({ variant: "a", unit: { m: 1 } });
+    expect(again.part).toEqual({ variant: "b", unit: { m: 1 } });
+    expect(without.part).toEqual({ variant: "a" });
+  });
+
+  it("bring what was remembered of the items inside an edited child, to its new place", () => {
+    const child = (key: "kids" | "items"): Place => ["n", key, 0];
+    const typed = (value: number | string): Json => ({ kind: "x", value });
+    const inner = (place: Place, from: string, to: string): ((current: Json, converted: Json) => Switch) => (current, converted) => ({ place, vocabulary: "json", from, to, current, convert: () => converted, slots: noSlots, inside: "kept" });
+    const away = switchVariant(NO_MEMORY, between("kids", "items")(holder("kids", "kids", [typed(1), Y]), holder("items", "items", [typed(1)])));
+    const innerAway = switchVariant(away.memory, inner(child("items"), "number", "text")(typed(1), typed("1")));
+    const back = switchVariant(innerAway.memory, between("items", "kids")(holder("items", "items", [typed("1")]), holder("kids", "kids", [])));
+    const innerBack = switchVariant(back.memory, inner(child("kids"), "text", "number")(typed("1"), typed(0)));
+
+    expect(back.part).toEqual(holder("kids", "kids", [typed("1"), Y]));
+    expect(innerBack.part).toEqual(typed(1));
+  });
+
+  it("do not bring the memory of an unedited child over what was remembered of the child it stands in for", () => {
+    const child = (key: "kids" | "items"): Place => ["n", key, 0];
+    const typed = (value: number | string): Json => ({ kind: "x", value });
+    const inner = (place: Place, from: string, to: string): ((current: Json, converted: Json) => Switch) => (current, converted) => ({ place, vocabulary: "json", from, to, current, convert: () => converted, slots: noSlots, inside: "kept" });
+    const withInner = switchVariant(NO_MEMORY, inner(child("kids"), "text", "number")(typed("keep"), typed(0)));
+    const away = switchVariant(withInner.memory, between("kids", "items")(holder("kids", "kids", [typed(0), Y]), holder("items", "items", [typed(0)])));
+    const back = switchVariant(away.memory, between("items", "kids")(away.part, holder("kids", "kids", [])));
+    const innerBack = switchVariant(back.memory, inner(child("kids"), "number", "text")(typed(0), typed("default")));
+
+    expect(innerBack.part).toEqual(typed("keep"));
+  });
+
+  it("are not consulted for a variant the item has not been in", () => {
+    const away = switchVariant(NO_MEMORY, between("three", "two")(holder("three", "kids", [X, Y, Z]), holder("two", "kids", [X, Y])));
+
+    expect(away.part).toEqual(holder("two", "kids", [X, Y]));
+  });
+});
+
 describe("forgetWithin and forgetInside", () => {
-  const SIBLING: Place = ["rules", 1, "excludes", "right"];
+  const SIBLING: Place = ["rules", SECOND_RULE, "excludes", "right"];
   /** A rule whose index starts with the digits of the index of another, which is not inside it. */
   const LONG_INDEX: Place = ["rules", TENTH_RULE, "x"];
   const LIST: Place = ["rules", 0, "candidates"];
@@ -182,8 +312,8 @@ describe("forgetWithin and forgetInside", () => {
   });
 
   it("keeps an item that only shares the start of a path", () => {
-    expect(gives(forgetWithin(remembered(LONG_INDEX), ["rules", 1]), LONG_INDEX)).toBe(true);
-    expect(gives(forgetInside(remembered(LONG_INDEX), ["rules", 1]), LONG_INDEX)).toBe(true);
+    expect(gives(forgetWithin(remembered(LONG_INDEX), ["rules", SECOND_RULE]), LONG_INDEX)).toBe(true);
+    expect(gives(forgetInside(remembered(LONG_INDEX), ["rules", SECOND_RULE]), LONG_INDEX)).toBe(true);
   });
 
   it("keeps the places above it", () => {
@@ -205,7 +335,7 @@ describe("forgetWithin and forgetInside", () => {
   });
 });
 
-describe("any sequence of switches and edits", () => {
+describe("any sequence of switches and edits of an item without children", () => {
   const VARIANTS = ["a", "b", "c", "d"] as const;
   type Variant = (typeof VARIANTS)[number];
   const step = fc.record({ to: fc.constantFrom(...VARIANTS), edit: fc.option(fc.jsonValue(), { nil: undefined }) });
@@ -250,6 +380,87 @@ describe("any sequence of switches and edits", () => {
 
         expect(part).toEqual(original);
       }),
+    );
+  });
+});
+
+describe("any sequence of switches and edits of an item with children", () => {
+  /** How many children each variant has places for. A switch carries the first ones across and gives the rest a default. */
+  const ARITY = { a: 3, b: 2, c: 1, d: 4 } as const;
+  type Variant = keyof typeof ARITY;
+  const VARIANTS = Object.keys(ARITY).filter((name): name is Variant => name in ARITY);
+  const MAX_STEPS = 30;
+
+  type Step = { readonly kind: "switch"; readonly to: Variant } | { readonly kind: "edit"; readonly position: number };
+  const steps: fc.Arbitrary<Step[]> = fc.array(
+    fc.oneof(
+      fc.constantFrom(...VARIANTS).map((to): Step => ({ kind: "switch", to })),
+      fc.nat().map((position): Step => ({ kind: "edit", position })),
+    ),
+    { maxLength: MAX_STEPS },
+  );
+
+  function part(variant: Variant, children: readonly string[]): Json {
+    return holder(variant, "kids", children.map((value): Json => ({ kind: "textLiteral", value })));
+  }
+
+  function childrenOf(held: Json): string[] {
+    const list = isJsonObject(held) ? held["kids"] : undefined;
+    if (list === undefined || !isJsonArray(list)) throw new Error("not a part with children");
+
+    return list.map((child) => (isJsonObject(child) && typeof child["value"] === "string" ? child["value"] : "?"));
+  }
+
+  function run(chain: readonly Step[]): { readonly children: string[]; readonly expected: string[] } {
+    const original = ["o0", "o1", "o2"];
+    const latest = new Map<number, string>(original.map((value, position) => [position, value]));
+    let memory = NO_MEMORY;
+    let variant: Variant = "a";
+    let children = [...original];
+    let edits = 0;
+    const switchTo = (to: Variant): void => {
+      if (to === variant) return;
+      const converted = Array.from({ length: ARITY[to] }, (_, position) => children[position] ?? `default ${to} ${String(position)}`);
+      const switched = switchVariant(memory, between(variant, to)(part(variant, children), part(to, converted)));
+      memory = switched.memory;
+      children = childrenOf(switched.part);
+      variant = to;
+    };
+    for (const next of chain) {
+      if (next.kind === "switch") {
+        switchTo(next.to);
+        continue;
+      }
+      const position = next.position % ARITY[variant];
+      const value = `edit ${String(edits)}`;
+      edits += 1;
+      children = children.with(position, value);
+      latest.set(position, value);
+    }
+    switchTo("a");
+
+    return { children, expected: original.map((_, position) => latest.get(position) ?? "?") };
+  }
+
+  it("ends in the first variant with each child as it was last edited in any variant that had a place for it", () => {
+    fc.assert(
+      fc.property(steps, (chain) => {
+        const { children, expected } = run(chain);
+
+        expect(children).toEqual(expected);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it("restores the original after any chain of switches, however short the variants it passes through", () => {
+    fc.assert(
+      fc.property(steps, (chain) => {
+        const { children, expected } = run(chain.filter((entry) => entry.kind === "switch"));
+
+        expect(children).toEqual(expected);
+      }),
+      { numRuns: 500 },
     );
   });
 });

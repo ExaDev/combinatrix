@@ -6,6 +6,7 @@ import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, 
 import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
 import { classifyExpression, classifyPredicate, createPredicate } from "./nodes";
 import { convertScalar, isScalar } from "./scalars";
+import type { Slots } from "./typeMemory";
 
 /**
  * The editor's model: the JSON a model is, edited by pure functions that each return a new model. Anything the form has no control for is never touched, so it survives every edit. What the form shows of the model is `viewOfModel`; the library, not these functions, decides whether the result is a valid model.
@@ -420,6 +421,11 @@ export function restate(statement: Json, from: RuleForm, to: RuleForm, names: re
   const kept = view.body.form === "implies" ? view.body.antecedent : view.body.condition;
 
   return to === "implies" ? [kept, createPredicate("exists", names)] : kept;
+}
+
+/** The places of the children of a rule's statement: its condition, which is the antecedent of an `implies`. */
+export function statementSlots(statement: Json): Slots {
+  return [isJsonArray(statement) ? [[0], [1]] : [[]]];
 }
 
 /** The model with the rule at `index` stating `statement` in the form `form`, in the place of the key it stated itself under, so the order of the rule's keys is kept. */

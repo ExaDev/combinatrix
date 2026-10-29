@@ -6,6 +6,7 @@ import type { Direction, Json, JsonObject, JsonStep } from "./json";
 import { parseJson } from "./json";
 import { addListItem, moveListItem, removeListItem, setNode } from "./modelEdit";
 import { parseNumber } from "./scalars";
+import type { Slots } from "./typeMemory";
 
 /** What the page offers a drawn part of the form for editing the model. */
 export interface TreeHost {
@@ -117,11 +118,11 @@ export function rowButtons(host: TreeHost, row: RowSpec): HTMLElement {
 }
 
 /**
- * Switches the node at a path from one variant to another, naming both as items of `vocabulary` (see `typeMemory`): the node becomes what it last was in the variant, if it was ever in it, and otherwise `convert` of what it is now.
+ * Switches the node at a path from one variant to another, naming both as variants in `vocabulary` (see `typeMemory`): the node becomes what it last was in the variant, if it was ever in it, with the children edited since, and otherwise `convert` of what it is now.
  */
-export function switchNode(host: TreeHost, spec: { readonly path: readonly JsonStep[]; readonly vocabulary: string; readonly from: string; readonly to: string; readonly convert: (current: Json) => Json; readonly announce: string }): void {
-  const variant = (name: string): string => `${spec.vocabulary}:${name}`;
-  host.switchTo(nodeSwitch({ path: spec.path, from: variant(spec.from), to: variant(spec.to), convert: spec.convert }), { announce: spec.announce });
+export function switchNode(host: TreeHost, spec: { readonly path: readonly JsonStep[]; readonly vocabulary: string; readonly from: string; readonly to: string; readonly convert: (current: Json) => Json; readonly slots: (part: Json) => Slots; readonly announce: string }): void {
+  const { announce, ...item } = spec;
+  host.switchTo(nodeSwitch(item), { announce });
 }
 
 /** A button that adds an item to the list at a path. */
