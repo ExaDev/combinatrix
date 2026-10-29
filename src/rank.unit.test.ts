@@ -219,7 +219,7 @@ describe("derived, conditionally active and unset dimensions", () => {
       choice("compress", [undefined, true]),
       firstValid("codec", ["zstd", "brotli", "gzip"], { activeWhen: { set: "compress" } }),
       choice("level", ["fast", "best"], { activeWhen: { set: "compress" } }),
-      computed("label", { reads: ["os", "codec"], compute: (values) => `${String(values["os"])}-${String(values["codec"] ?? "none")}` }),
+      computed("label", { reads: ["os", "codec"], compute: (values) => `${String(values.os)}-${String(values.codec ?? "none")}` }),
     ],
     rules: [{ excludes: { is: ["codec", "zstd"] }, when: { is: ["os", "windows"] } }],
   });

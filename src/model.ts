@@ -2,8 +2,9 @@ import type { ConstraintDefects, DimensionDefects, Refusal, RuleDefects } from "
 import type { Condition, Mention } from "./condition";
 import { conditionDependencies, conditionMentions } from "./condition";
 import type { Constraint, ConstraintTools, PredicateValues, TypedPredicateDefinition } from "./constraint";
-import { predicate } from "./constraint";
+import { namedPredicate } from "./constraint";
 import type { Dimension, NameOf, TupleOf } from "./dimension";
+import { domainOf, possibleKeys } from "./dimension";
 import { ModelError } from "./errors";
 import type { Rule, TypedRule } from "./rule";
 import { ruleConditions, ruleConstraint } from "./rule";
@@ -87,28 +88,9 @@ function constraintTools<Ds extends readonly Dimension[]>(possible: ReadonlyMap<
         });
       const test = (values: Readonly<PredicateValues<R>>): boolean => fits(values) && definition.test(values);
 
-      return definition.name === undefined ? predicate({ reads, test }) : predicate({ reads, test, name: definition.name });
+      return namedPredicate(reads, test, definition.name);
     },
   };
-}
-
-/** The keys of every value a dimension can hold in a combination, or `undefined` when a function computes it and the set is not known ahead. */
-export function possibleKeys(dimension: Dimension): Set<string> | undefined {
-  if (dimension.kind === "computed") return undefined;
-
-  const values = domainOf(dimension);
-  const keys = new Set(values.map(valueKey));
-  if (dimension.activeWhen !== undefined) keys.add(valueKey(undefined));
-
-  return keys;
-}
-
-/** A free dimension's values or a first-valid dimension's candidates; empty for a computed one. */
-export function domainOf(dimension: Dimension): readonly Value[] {
-  if (dimension.kind === "choice") return dimension.values;
-  if (dimension.kind === "first-valid") return dimension.candidates;
-
-  return [];
 }
 
 function checkModel(dimensions: readonly Dimension[], rules: readonly Rule[], constraints: readonly Constraint[]): string[] {

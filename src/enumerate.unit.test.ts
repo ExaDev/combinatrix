@@ -42,6 +42,29 @@ describe("combinations", () => {
     expect(() => [...combinations(cube, { limit: -1 })]).toThrow(RangeError);
   });
 
+  it("says the limit bounded the solution set for full and the selection for any other strategy", () => {
+    const limit = SPACE - 1;
+    expect(() => collect(cube, { limit })).toThrow(expect.objectContaining({ bound: "solution-set", limit, message: `the solution set has more than ${String(limit)} combinations` }));
+    const all: Strategy = { name: "all", select: (context) => context.completions() };
+    expect(() => collect(cube, { strategy: all, limit })).toThrow(expect.objectContaining({ bound: "selection", limit, message: `the strategy selected more than ${String(limit)} combinations` }));
+  });
+
+  it("passes on a strategy's own limit with what it bounded", () => {
+    const rows = 2;
+    const capped: Strategy = {
+      name: "capped",
+      select: function* (context) {
+        let held = 0;
+        for (const row of context.completions()) {
+          if (held === rows) throw new LimitExceededError(rows, "rows");
+          held += 1;
+          yield row;
+        }
+      },
+    };
+    expect(() => collect(cube, { strategy: capped })).toThrow(expect.objectContaining({ bound: "rows", limit: rows, message: `the strategy would hold more than ${String(rows)} rows` }));
+  });
+
   it("runs to completion with no limit, and a limit equal to the size gives the same result", () => {
     expect(collect(cube)).toHaveLength(SPACE);
     expect(collect(cube, {})).toEqual(collect(cube, { limit: SPACE }));
@@ -85,6 +108,16 @@ describe("combinations", () => {
     const broken: Constraint = { name: "broken", dependencies: ["d0"], evaluate: () => "unknown" };
     const model = defineModel({ dimensions: cube.dimensions, constraints: [broken] });
     expect(() => [...combinations(model)]).toThrow(ConstraintContractError);
+  });
+});
+
+describe("LimitExceededError", () => {
+  it("words its message from what the limit bounded, the solution set when not told otherwise", () => {
+    const limit = 1;
+    expect(new LimitExceededError(limit)).toMatchObject({ bound: "solution-set", limit, message: "the solution set has more than 1 combinations" });
+    expect(new LimitExceededError(limit, "selection").message).toBe("the strategy selected more than 1 combinations");
+    expect(new LimitExceededError(limit, "rows").message).toBe("the strategy would hold more than 1 rows");
+    expect(new LimitExceededError(limit, "steps").message).toBe("the strategy would take more than 1 steps");
   });
 });
 
@@ -190,16 +223,16 @@ describe("explain", () => {
     expect(explainData(stuck, { a: 1 })).toEqual({ valid: false, reasons: [{ kind: "no-candidate", dimension: "c" }] });
   });
 
-  it("refuses at compile time a value outside a domain, a missing dimension and an extra one, even from a variable", () => {
+  it("refuses at compile time a value outside a domain, a missing dimension and an extra one, even from a variable, and throws TypeError when the types are bypassed", () => {
     // @ts-expect-error "one" is not a value of a
-    explain(model, { a: "one", b: undefined, c: "low" });
-    // @ts-expect-error c is missing
-    explain(model, { a: 1, b: undefined });
+    expect(() => explain(model, { a: "one", b: undefined, c: "low" })).toThrow(TypeError);
+    // @ts-expect-error a is missing
+    expect(() => explain(model, { b: undefined, c: "low" })).toThrow(TypeError);
     // @ts-expect-error z is not a dimension
-    explain(model, { a: 1, b: undefined, c: "low", z: 1 });
+    expect(() => explain(model, { a: 1, b: undefined, c: "low", z: 1 })).toThrow(TypeError);
     const extra = { a: 1, b: undefined, c: "low", z: 1 } as const;
     // @ts-expect-error z is not a dimension, and the record is not a literal, so only the exactness check catches it
-    explain(model, extra);
+    expect(() => explain(model, extra)).toThrow("explainData takes untyped data");
     expectTypeOf<CombinationOf<typeof model>>().toEqualTypeOf<{ readonly a: 1 | 2; readonly b: "x" | undefined; readonly c: "low" | "high" }>();
   });
 });

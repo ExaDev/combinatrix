@@ -1,5 +1,6 @@
 import type { Condition } from "./condition";
-import type { NonEmpty, Value } from "./value";
+import type { NonEmpty, Value, ValueRecord } from "./value";
+import { valueKey } from "./value";
 
 /** What every dimension carries, whatever its kind. `C` is the type of its activity condition: the literal type of one written in code, which `defineModel` checks against the dimensions declared before it, or `Condition` when it is not known at compile time. */
 interface DimensionCommon<N extends string, C extends Condition> {
@@ -23,13 +24,25 @@ export interface FirstValidDimension<N extends string, V extends Value, C extend
   readonly candidates: readonly V[];
 }
 
-/** A derived dimension computed by a function of dimensions declared before it. `R` is the names it reads, checked by `defineModel` against the dimensions declared before it when they are known at compile time. */
-export interface ComputedDimension<N extends string, V extends Value, C extends Condition = Condition, R extends string = string> extends DimensionCommon<N, C> {
+/**
+ * The function type `F` with its parameters compared bivariantly, as a method's are, rather than contravariantly as a function property's are under `strictFunctionTypes`. A computed dimension's `compute` has this type so that one reading a few named dimensions of known value types is still a `Dimension`, whose `compute` takes any record: the engine only ever passes the values of the dimensions it declared it reads, each one its dimension can hold, which is what makes the wider comparison sound. It is declared through a class because a class's method is the one method form the lint rules admit.
+ */
+declare class BivariantMethod<F extends (...args: never) => unknown> {
+  call(...args: Parameters<F>): ReturnType<F>;
+}
+
+/** `F` with bivariant parameters: see `BivariantMethod`. */
+export type Bivariant<F extends (...args: never) => unknown> = BivariantMethod<F>["call"];
+
+/**
+ * A derived dimension computed by a function of dimensions declared before it. `R` is the names it reads, checked by `defineModel` against the dimensions declared before it when they are known at compile time, and `P` is the type `compute` takes, checked by `defineModel` to accept every value those dimensions can take.
+ */
+export interface ComputedDimension<N extends string, V extends Value, C extends Condition = Condition, R extends string = string, P = Readonly<Record<R, Value>>> extends DimensionCommon<N, C> {
   readonly kind: "computed";
-  /** The dimensions `compute` reads, each declared before this one. */
+  /** The names of the dimensions `compute` reads, each declared before this one. */
   readonly reads: readonly R[];
   /** The value from the values of `reads`, keyed by dimension name. It must be pure, since the engine may call it more than once for the same inputs. */
-  readonly compute: (values: Readonly<Record<string, Value>>) => V;
+  readonly compute: Bivariant<(values: P) => V>;
 }
 
 /** One dimension of a model: a free choice, or a value derived from the others. */
@@ -70,18 +83,50 @@ export function firstValid<const N extends string, const V extends Value>(name: 
   return withActivity({ kind: "first-valid", name, candidates }, options);
 }
 
-/** The definition of a computed dimension. */
-export interface ComputedDefinition<V extends Value, R extends string = string> {
-  readonly reads: readonly R[];
-  readonly compute: (values: Readonly<Record<string, Value>>) => V;
+/** One entry of a `reads` list: a dimension's name, or the dimension itself, which gives the value type it is read with too. */
+export type Read = string | Dimension;
+
+/** The name a `reads` entry names. */
+export type ReadName<X extends Read> = X extends Dimension ? X["name"] : X;
+
+/** The values a `reads` list reads, keyed by name: each dimension given as itself with its own value type, and each given by name alone as any `Value`, since a name carries no value type. */
+export type ReadValues<Rs extends readonly Read[]> = { readonly [X in Rs[number] as ReadName<X>]: X extends Dimension ? ValueOf<X> : Value };
+
+/** The names a `reads` list names, in order: the runtime form of the list, which is what a model stores. */
+export function readNames<const Rs extends readonly Read[]>(reads: Rs): ReadName<Rs[number]>[] {
+  const names = reads.map(nameOfRead);
+  if (!namesEach(names, reads)) throw new Error("unreachable: each name was taken from the read at its position");
+
+  return names;
+}
+
+function nameOfRead(read: Readonly<Read>): string {
+  return typeof read === "string" ? read : read.name;
+}
+
+/** Whether each name is the one the read at its position names. */
+function namesEach<Rs extends readonly Read[]>(names: readonly string[], reads: Rs): names is ReadName<Rs[number]>[] {
+  return names.length === reads.length && names.every((name, index) => {
+    const read = reads[index];
+
+    return read !== undefined && name === nameOfRead(read);
+  });
+}
+
+/** The definition of a computed dimension. `Rs` is its `reads` list, which types the values `compute` receives. */
+export interface ComputedDefinition<V extends Value, Rs extends readonly Read[] = readonly string[]> {
+  /** The dimensions `compute` reads, each declared before this one, by name or as the dimension itself. A dimension given as itself is read with its own value type; one given by name is read as any `Value`. */
+  readonly reads: Rs;
+  /** The value from the values of `reads`, keyed by dimension name. It must be pure, since the engine may call it more than once for the same inputs. */
+  readonly compute: (values: Readonly<ReadValues<Rs>>) => V;
   readonly activeWhen?: Condition;
 }
 
-/** A derived dimension computed from dimensions declared before it. See `ComputedDimension`. */
-export function computed<const N extends string, V extends Value, const R extends string, const C extends Condition>(name: N, definition: ComputedDefinition<V, R> & ConditionalOptions<C>): ComputedDimension<N, V | undefined, C, R>;
-export function computed<const N extends string, V extends Value, const R extends string>(name: N, definition: ComputedDefinition<V, R>): ComputedDimension<N, V, Condition, R>;
-export function computed<const N extends string, V extends Value, const R extends string>(name: N, definition: ComputedDefinition<V, R>): ComputedDimension<N, V, Condition, R> {
-  return withActivity({ kind: "computed", name, reads: definition.reads, compute: definition.compute }, definition);
+/** A derived dimension computed from dimensions declared before it. See `ComputedDimension` and `ComputedDefinition`. */
+export function computed<const N extends string, V extends Value, const Rs extends readonly Read[], const C extends Condition>(name: N, definition: ComputedDefinition<V, Rs> & ConditionalOptions<C>): ComputedDimension<N, V | undefined, C, ReadName<Rs[number]>, ReadValues<Rs>>;
+export function computed<const N extends string, V extends Value, const Rs extends readonly Read[]>(name: N, definition: ComputedDefinition<V, Rs>): ComputedDimension<N, V, Condition, ReadName<Rs[number]>, ReadValues<Rs>>;
+export function computed<const N extends string, V extends Value, const Rs extends readonly Read[]>(name: N, definition: ComputedDefinition<V, Rs>): ComputedDimension<N, V, Condition, ReadName<Rs[number]>, ReadValues<Rs>> {
+  return withActivity({ kind: "computed", name, reads: readNames(definition.reads), compute: definition.compute }, definition);
 }
 
 function withActivity<D extends Dimension>(dimension: D, options: DimensionOptions): D {
@@ -93,6 +138,37 @@ export type ValueOf<D> = D extends Dimension<string, infer V> ? V : never;
 
 /** The type of one combination of the given dimensions: every dimension's name mapped to its value, unset included. */
 export type TupleOf<Ds extends readonly Dimension[]> = { readonly [D in Ds[number] as D["name"]]: ValueOf<D> };
+
+/** The keys of every value a dimension can hold in a combination, or `undefined` when a function computes it and the set is not known ahead. */
+export function possibleKeys(dimension: Dimension): Set<string> | undefined {
+  if (dimension.kind === "computed") return undefined;
+
+  const values = domainOf(dimension);
+  const keys = new Set(values.map(valueKey));
+  if (dimension.activeWhen !== undefined) keys.add(valueKey(undefined));
+
+  return keys;
+}
+
+/** A free dimension's values or a first-valid dimension's candidates; empty for a computed one. */
+export function domainOf(dimension: Dimension): readonly Value[] {
+  if (dimension.kind === "choice") return dimension.values;
+  if (dimension.kind === "first-valid") return dimension.candidates;
+
+  return [];
+}
+
+/** Whether a value is one the dimension can hold in a combination: one of its possible values, or for a computed dimension, whose values are not known ahead, any value. */
+export function canHold(dimension: Dimension, value: Value): boolean {
+  const keys = possibleKeys(dimension);
+
+  return keys === undefined || keys.has(valueKey(value));
+}
+
+/** Whether every dimension a `reads` list gives as itself can hold the value given for its name. A name given alone reads any value. */
+export function readsHold(reads: readonly Read[], values: ValueRecord): boolean {
+  return reads.every((read) => typeof read === "string" || canHold(read, values[read.name]));
+}
 
 /** The names of the given dimensions. */
 export type NameOf<Ds extends readonly Dimension[]> = Ds[number]["name"];

@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { CombinationOf, Condition, Constraint, TupleOf, TypedCondition, TypedRule } from "./index";
-import { choice, collect, computed, defineModel, firstValid, isNonEmpty, ModelError, predicate, sampled } from "./index";
+import type { AbortSignalLike, CombinationOf, Condition, Constraint, DataReason, DeadValue, Dimension, LimitBound, PartialAssignment, Reason, Strategy, StrategyContext, TupleOf, TypedCondition, TypedRule, Value } from "./index";
+import { choice, collect, computed, count, defineModel, diagnose, explain, explainData, firstValid, isNonEmpty, LimitExceededError, ModelError, predicate, sampled, StrategyError } from "./index";
 
 /**
  * Compile-time guarantees. Each `@ts-expect-error` line is load-bearing: `pnpm typecheck` type-checks this file, and a directive whose line compiles is itself an error (TS2578), so a guarantee that stopped holding fails the typecheck. Each refused definition is also run, to show `defineModel` still refuses it at runtime, where data that bypassed the types arrives.
@@ -187,5 +187,214 @@ describe("a predicate bound to the model", () => {
     expect(seen).toEqual([]);
     expect(constraint?.evaluate(new Map([["os", "linux"]]))).toBe("valid");
     expect(seen).toEqual(["linux"]);
+  });
+});
+
+describe("the reasons explain gives", () => {
+  const model = defineModel({
+    dimensions: [choice("os", ["linux", "macos"]), choice("libc", ["glibc", "musl"], { activeWhen: { is: ["os", "linux"] } }), firstValid("channel", ["stable", "beta"])],
+    rules: [{ requires: { is: ["channel", "beta"] }, when: { is: ["libc", "musl"] } }],
+  });
+  type Of = CombinationOf<typeof model>;
+
+  it("are keyed by dimension, so testing the dimension narrows the value", () => {
+    const explanation = explain(model, { os: "macos", libc: "musl", channel: "stable" });
+    if (explanation.valid) throw new Error("the record sets an inactive dimension");
+    expectTypeOf(explanation.reasons).toEqualTypeOf<readonly Reason<Of>[]>();
+    const narrowed: string[] = [];
+    for (const reason of explanation.reasons) {
+      if (reason.kind !== "inactive") continue;
+      // @ts-expect-error kernel is not a dimension, so no reason names it
+      expect(reason.dimension === "kernel").toBe(false);
+      if (reason.dimension === "libc") {
+        expectTypeOf(reason.value).toEqualTypeOf<"glibc" | "musl" | undefined>();
+        // @ts-expect-error libc is never "uclibc"
+        expect(reason.value === "uclibc").toBe(false);
+        narrowed.push(reason.value ?? "unset");
+      }
+    }
+    expect(narrowed).toEqual(["musl"]);
+  });
+
+  it("pair a derived value with the expected one of the same dimension", () => {
+    const explanation = explain(model, { os: "linux", libc: "musl", channel: "stable" });
+    if (explanation.valid) throw new Error("musl derives beta");
+    const derived = explanation.reasons.find((reason) => reason.kind === "derived");
+    if (derived?.dimension !== "channel") throw new Error("the channel is not the one derived");
+    expectTypeOf(derived.expected).toEqualTypeOf<"stable" | "beta">();
+    expect(derived.expected).toBe("beta");
+  });
+
+  it("stay untyped for untyped data, with unknown where the data is not even a value", () => {
+    const explanation = explainData(model, { os: "bsd", libc: Symbol("not a value") });
+    if (explanation.valid) throw new Error("the data is not a combination");
+    expectTypeOf(explanation.reasons).toEqualTypeOf<readonly DataReason[]>();
+    const kinds = explanation.reasons.map((reason) => {
+      if (reason.kind === "outside-domain") expectTypeOf(reason).toEqualTypeOf<{ readonly kind: "outside-domain"; readonly dimension: string; readonly value: Value }>();
+      if (reason.kind === "not-a-value") expectTypeOf(reason.value).toBeUnknown();
+
+      return reason.kind;
+    });
+    expect(kinds).toEqual(["outside-domain", "not-a-value"]);
+  });
+});
+
+describe("the dead values diagnose lists", () => {
+  it("are keyed by dimension, so testing the dimension narrows the value", () => {
+    const model = defineModel({ dimensions: [choice("os", ["linux", "macos"]), choice("arch", ["x64", "arm64", "riscv64"])], rules: [{ excludes: { is: ["arch", "riscv64"] } }] });
+    const diagnosis = diagnose(model);
+    if (diagnosis.status === "empty") throw new Error("the model is satisfiable");
+    expectTypeOf(diagnosis.deadValues).toEqualTypeOf<readonly DeadValue<CombinationOf<typeof model>>[]>();
+    const [dead] = diagnosis.deadValues;
+    // @ts-expect-error kernel is not a dimension, so no dead value names it
+    expect(dead?.dimension === "kernel").toBe(false);
+    if (dead?.dimension !== "arch") throw new Error("riscv64 is the dead value");
+    expectTypeOf(dead.value).toEqualTypeOf<"x64" | "arm64" | "riscv64">();
+    expect(dead.value).toBe("riscv64");
+  });
+});
+
+describe("a computed dimension's reads", () => {
+  const os = choice("os", ["linux", "macos"]);
+  const arch = choice("arch", ["x64", "arm64"]);
+
+  it("are typed by name when given by name, as any value of each", () => {
+    computed("triple", {
+      reads: ["os", "arch"],
+      compute: (values) => {
+        expectTypeOf(values).toEqualTypeOf<Readonly<{ readonly os: Value; readonly arch: Value }>>();
+        // @ts-expect-error kernel is not read
+        expect(values.kernel).toBeUndefined();
+
+        return `${String(values.os)}-${String(values.arch)}`;
+      },
+    });
+  });
+
+  it("are typed by each dimension's values when given as the dimensions themselves", () => {
+    const model = defineModel({
+      dimensions: [
+        os,
+        arch,
+        computed("triple", {
+          reads: [os, arch],
+          compute: ({ os: system, arch: machine }) => {
+            expectTypeOf(system).toEqualTypeOf<"linux" | "macos">();
+            // @ts-expect-error os is never "windows", so the comparison has no overlap
+            expect(system === "windows").toBe(false);
+
+            return `${machine}-${system}` as const;
+          },
+        }),
+      ],
+    });
+    expectTypeOf<CombinationOf<typeof model>["triple"]>().toEqualTypeOf<"x64-linux" | "x64-macos" | "arm64-linux" | "arm64-macos">();
+    expect(collect(model).map(({ values }) => values.triple)).toEqual(["x64-linux", "arm64-linux", "x64-macos", "arm64-macos"]);
+  });
+
+  it("keep a computed dimension a Dimension, whatever its reads", () => {
+    expectTypeOf(computed("triple", { reads: [os, "arch"], compute: ({ os: system }) => system })).toExtend<Dimension>();
+  });
+
+  it("refuse a compute whose parameter does not accept every value its reads can hold", () => {
+    const narrow = choice("os", ["linux"]);
+    // @ts-expect-error the os given in reads cannot be macos, but the model's os can
+    defineModel({ dimensions: [os, computed("kernel", { reads: [narrow], compute: ({ os: system }) => system })] });
+    // @ts-expect-error the annotated parameter accepts only linux
+    defineModel({ dimensions: [os, computed("kernel", { reads: ["os"], compute: (values: Readonly<{ os: "linux" }>) => values.os })] });
+  });
+});
+
+describe("a standalone predicate's reads", () => {
+  it("are typed by each dimension's values when given as the dimensions themselves", () => {
+    const os = choice("os", ["linux", "macos"]);
+    const test = ({ os: system }: Readonly<{ os: "linux" | "macos" }>): boolean => system === "linux";
+    const linuxOnly = predicate({
+      reads: [os],
+      test: (values) => {
+        expectTypeOf(values).toEqualTypeOf<Readonly<{ readonly os: "linux" | "macos" }>>();
+        // @ts-expect-error os is never "windows", so the comparison has no overlap
+        expect(values.os === "windows").toBe(false);
+
+        return test(values);
+      },
+    });
+    expect(count(defineModel({ dimensions: [os], constraints: [linuxOnly] }))).toBe(1);
+  });
+
+  it("answer invalid without calling test for a value a dimension given as itself cannot hold, and pass any value of one given by name", () => {
+    const seen: unknown[] = [];
+    const record = ({ os: system }: Readonly<{ os: unknown }>): boolean => seen.push(system) > 0;
+    const typed = predicate({ reads: [choice("os", ["linux", "macos"])], test: record });
+    expect(typed.dependencies).toEqual(["os"]);
+    expect(typed.evaluate(new Map([["os", "bsd"]]))).toBe("invalid");
+    expect(typed.evaluate(new Map([["os", "linux"]]))).toBe("valid");
+    const named = predicate({ reads: ["os"], test: record });
+    expect(named.evaluate(new Map([["os", "bsd"]]))).toBe("valid");
+    expect(seen).toEqual(["linux", "bsd"]);
+  });
+});
+
+describe("a strategy", () => {
+  const model = defineModel({ dimensions: [choice("os", ["linux", "macos"]), choice("arch", ["x64", "arm64"])] });
+  type Of = CombinationOf<typeof model>;
+  const other = defineModel({ dimensions: [choice("colour", ["red", "blue"])] });
+
+  it("written for the model gets typed assignments and completions, and yields typed rows", () => {
+    const firstLinux: Strategy<Of> = {
+      name: "first linux",
+      select: function* (context) {
+        expectTypeOf(context).toEqualTypeOf<StrategyContext<Of>>();
+        expectTypeOf(context.completions).parameter(0).toEqualTypeOf<PartialAssignment<Of> | undefined>();
+        // @ts-expect-error kernel is not a dimension of the model
+        context.completions(new Map([["kernel", "linux"]]));
+        // @ts-expect-error bsd is no value of any dimension of the model
+        context.completions(new Map([["os", "bsd"]]));
+        const [first] = context.completions(new Map([["os", "linux"]]));
+        if (first === undefined) return;
+        expectTypeOf(first).toEqualTypeOf<Of>();
+        yield first;
+      },
+    };
+    expect(collect(model, { strategy: firstLinux }).map(({ values }) => values)).toEqual([{ os: "linux", arch: "x64" }]);
+    // @ts-expect-error a row of the model has no colour
+    const wrongRows: Strategy<Of> = { name: "wrong rows", select: () => [{ colour: "red" }] };
+    expect(() => collect(model, { strategy: wrongRows })).toThrow();
+  });
+
+  it("written for another model is refused, and one written for any model is accepted", () => {
+    const forOther: Strategy<CombinationOf<typeof other>> = { name: "for other", select: () => [{ colour: "red" }] };
+    expect(collect(other, { strategy: forOther })).toHaveLength(1);
+    // @ts-expect-error the strategy is for a model with other dimensions
+    expect(() => collect(model, { strategy: forOther })).toThrow(StrategyError);
+    const forAny: Strategy = { name: "for any", select: (context) => context.completions() };
+    expect(collect(model, { strategy: forAny })).toEqual(collect(model));
+    expect(collect(other, { strategy: forAny })).toEqual(collect(other));
+  });
+});
+
+describe("the abort signal", () => {
+  it("is satisfied by a real AbortSignal and by a hand-written object keeping the same contract", () => {
+    expectTypeOf<AbortSignal>().toExtend<AbortSignalLike>();
+    const reason = new Error("stopped");
+    const signal: AbortSignalLike = {
+      aborted: true,
+      reason,
+      throwIfAborted: () => {
+        throw reason;
+      },
+    };
+    expect(() => count(defineModel({ dimensions: [choice("a", [1, 2])] }), { signal })).toThrow(reason);
+  });
+});
+
+describe("LimitExceededError", () => {
+  it("names what its limit bounded, from a closed set", () => {
+    const limit = 1;
+    const error = new LimitExceededError(limit, "rows");
+    expectTypeOf(error.bound).toEqualTypeOf<LimitBound>();
+    expect(error.bound).toBe("rows");
+    // @ts-expect-error bytes is not something a limit bounds
+    expect(() => new LimitExceededError(limit, "bytes")).toThrow(TypeError);
   });
 });
