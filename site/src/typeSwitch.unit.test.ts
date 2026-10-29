@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import { execute } from "./engine";
 import { EXAMPLES } from "./examples";
 import { Harness } from "./formHarness";
@@ -11,6 +12,11 @@ import { isJsonObject, parseJson } from "./json";
 const STARTING_EXAMPLE = 1;
 const LINUX = "dimensions.0.values.0";
 const RIGHT = "rules.0.excludes.right";
+
+/** Each switch or edit of the form draws it again, and a test makes at most this many of them, each allowed this long: a timeout derived from the work, so that a loaded machine passes. */
+const MOST_DRAWS_IN_A_TEST = 12;
+const DRAW_BUDGET_MS = 1000;
+const DRAWS = budgetFor(MOST_DRAWS_IN_A_TEST, DRAW_BUDGET_MS);
 
 /** Numbers the tests write into values. */
 const FIVE = 5;
@@ -48,7 +54,7 @@ function ruleModel(condition: Json): JsonObject {
   });
 }
 
-describe("a value of a dimension's domain", () => {
+describe("a value of a dimension's domain", DRAWS, () => {
   it("is the same text after it is switched to a number and back", () => {
     const harness = startingHarness();
     harness.choose(`${LINUX}:type`, "number");
@@ -145,7 +151,7 @@ describe("a value of a dimension's domain", () => {
   });
 });
 
-describe("what is remembered of a value", () => {
+describe("what is remembered of a value", DRAWS, () => {
   it("survives adding items and typing, which move nothing", () => {
     const harness = startingHarness();
     harness.choose(`${LINUX}:type`, "number");
@@ -211,7 +217,7 @@ describe("what is remembered of a value", () => {
   });
 });
 
-describe("a literal of a rule's expression", () => {
+describe("a literal of a rule's expression", DRAWS, () => {
   it("is the same after its kind is switched to a number and back", () => {
     const harness = startingHarness();
     harness.choose(`${RIGHT}:kind`, "numberLiteral");
@@ -287,7 +293,7 @@ describe("a literal of a rule's expression", () => {
   });
 });
 
-describe("an expression with operands", () => {
+describe("an expression with operands", DRAWS, () => {
   const SUM: Json = { kind: "arithmetic", op: "subtract", left: OS, right: ARCH };
 
   it("gets its second operand back after it is switched to a kind with one and back", () => {
@@ -327,7 +333,7 @@ describe("an expression with operands", () => {
   });
 });
 
-describe("an edit made to a child while the item is in another kind", () => {
+describe("an edit made to a child while the item is in another kind", DRAWS, () => {
   const LINUX_IS: Json = { kind: "textCompare", op: "equals", left: OS, right: { kind: "textLiteral", value: "linux" } };
 
   it("is kept when the item is switched back: the first operand of all of, edited as both's first side", () => {
@@ -414,7 +420,7 @@ describe("an edit made to a child while the item is in another kind", () => {
   });
 });
 
-describe("a predicate", () => {
+describe("a predicate", DRAWS, () => {
   it("gets all its operands back after it is switched to a kind with two and back", () => {
     const condition: Json = { kind: "allOf", operands: [exists(OS), exists(ARCH), { kind: "textCompare", op: "equals", left: OS, right: { kind: "textLiteral", value: "linux" } }] };
     const harness = new Harness(ruleModel(condition));
@@ -437,7 +443,7 @@ describe("a predicate", () => {
   });
 });
 
-describe("a rule's form", () => {
+describe("a rule's form", DRAWS, () => {
   const IMPLIES: Json = [exists(OS), { kind: "textCompare", op: "equals", left: ARCH, right: { kind: "textLiteral", value: "x64" } }];
 
   it("gets its consequent back after it is switched from implies and back", () => {

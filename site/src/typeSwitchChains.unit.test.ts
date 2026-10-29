@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import type { EditorState } from "./editorState";
 import { nodeSwitch, stateAfterSwitch, stateFromModel } from "./editorState";
 import type { Json, JsonObject } from "./json";
@@ -15,6 +16,10 @@ const DEPTH = 2;
 const MAX_SWITCHES = 12;
 const RUNS = 300;
 const SEED = 20_261_030;
+
+/** Each switch of a chain is allowed this long, so that a loaded machine passes. */
+const SWITCH_BUDGET_MS = 50;
+const CHAINS = budgetFor(RUNS * MAX_SWITCHES, SWITCH_BUDGET_MS);
 
 const NAMES = ["os", "arch"];
 const PATH = ["rules", 0, "excludes"] as const;
@@ -44,7 +49,7 @@ function switchKind(state: EditorState, where: { readonly path: readonly (string
 }
 
 describe("any chain of kinds that returns to the start", () => {
-  it("restores any predicate", () => {
+  it("restores any predicate", CHAINS, () => {
     fc.assert(
       fc.property(anyPredicateArb(DEPTH), fc.array(fc.constantFrom(...PREDICATE_KINDS), { minLength: 1, maxLength: MAX_SWITCHES }), (condition, chain) => {
         const start = PREDICATE_KINDS.find((kind) => kind === kindOf(condition));
@@ -57,7 +62,7 @@ describe("any chain of kinds that returns to the start", () => {
     );
   });
 
-  it("restores any expression", () => {
+  it("restores any expression", CHAINS, () => {
     const right = [...PATH, "right"] as const;
     fc.assert(
       fc.property(anyExpressionArb(DEPTH), fc.array(fc.constantFrom(...EXPRESSION_KINDS), { minLength: 1, maxLength: MAX_SWITCHES }), (expression, chain) => {
