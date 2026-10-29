@@ -2,10 +2,14 @@ import type { Value } from "combinatrix";
 
 import type { SpawnWorker } from "./client";
 import { CancelledError, EngineClient } from "./client";
+import type { EditorState } from "./editorState";
+import { emptyState, stateFromModel, stateFromText } from "./editorState";
 import { EXAMPLES, exampleText } from "./examples";
 import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
+import { ModelForm } from "./form";
+import type { JsonObject } from "./json";
 import { DEFAULT_LIST_LIMIT, DEFAULT_STRENGTH, MAX_LIST_LIMIT } from "./limits";
 import type { DimensionSummary, Failure, Request, Response, Result, Row, Verification } from "./protocol";
 import { isOp } from "./protocol";
@@ -32,6 +36,14 @@ function byId<T extends HTMLElement>(id: string, type: new () => T): T {
 
 const editor = byId("model", HTMLTextAreaElement);
 const validation = byId("validation", HTMLDivElement);
+const formContainer = byId("form", HTMLDivElement);
+const formFieldset = byId("form-fieldset", HTMLFieldSetElement);
+const formNotice = byId("form-notice", HTMLDivElement);
+const formProblem = byId("form-problem", HTMLParagraphElement);
+const formStatus = byId("form-status", HTMLParagraphElement);
+const useLastValid = byId("use-last-valid", HTMLButtonElement);
+const emptyModelButton = byId("empty-model", HTMLButtonElement);
+const advanced = byId("advanced", HTMLDetailsElement);
 const exampleSelect = byId("example", HTMLSelectElement);
 const copyLink = byId("copy-link", HTMLButtonElement);
 const exportButton = byId("export", HTMLButtonElement);
@@ -79,6 +91,9 @@ const spawnWorker: SpawnWorker = (handlers) => {
 const client = new EngineClient(spawnWorker);
 const saved = new SavedModels(() => window.localStorage);
 
+/** The model the form shows and the JSON text in the Advanced view: edits to either change both. */
+let state: EditorState = emptyState();
+
 /** The dimensions of the model in the editor, once the engine has validated exactly its current text; `undefined` while it is being checked or is invalid. */
 let dimensions: readonly DimensionSummary[] | undefined;
 let validating = false;
@@ -108,6 +123,7 @@ function refresh(): void {
   for (const button of operationButtons) button.disabled = !ready;
   for (const control of editingControls()) control.disabled = operating;
   editor.readOnly = operating;
+  formFieldset.disabled = operating || state.problem !== undefined;
   cancelButton.disabled = !client.busy;
 }
 
@@ -194,10 +210,52 @@ function editorChanged(): void {
   debounce = setTimeout(() => void validateEditor(), VALIDATE_DEBOUNCE_MS);
 }
 
-/** Replaces the editor's text, as the user typing it would. */
+// The form and the JSON view
+
+/** How a change of state reaches the page: whether the JSON text is rewritten from the model, and whether the form is drawn again. */
+interface Update {
+  readonly writeText: boolean;
+  readonly draw: boolean;
+  readonly focus?: string;
+  readonly announce?: string;
+}
+
+const form = new ModelForm(formContainer, { edit, editQuietly });
+
+/** Makes `next` the state of the form and the JSON view, and has the engine check its text. */
+function showState(next: EditorState, update: Update): void {
+  state = next;
+  if (update.writeText) editor.value = next.text;
+  formNotice.hidden = next.problem === undefined;
+  if (next.problem !== undefined) {
+    formProblem.textContent = next.problem.kind === "shape" ? `The JSON is valid, but the form cannot show it: ${next.problem.message}.` : "The JSON in the Advanced view is not valid, so the form shows the last valid model.";
+    advanced.open = true;
+  }
+  if (update.draw) form.render(next.model, update.focus);
+  if (update.announce !== undefined) formStatus.textContent = update.announce;
+  editorChanged();
+}
+
+/** The form's own edits: a change of the model, which rewrites the JSON text. */
+function edit(change: (model: JsonObject) => JsonObject, options: { readonly focus?: string; readonly announce?: string } = {}): void {
+  showState(stateFromModel(change(state.model)), { writeText: true, draw: true, ...options });
+}
+
+function editQuietly(change: (model: JsonObject) => JsonObject): void {
+  showState(stateFromModel(change(state.model)), { writeText: true, draw: false });
+}
+
+/** The JSON text changed, by typing in the Advanced view: a model the form can show updates the form, anything else leaves it showing the last valid model and keeps the text exactly as typed. */
+function textTyped(): void {
+  const next = stateFromText(editor.value, state.model);
+  showState(next, { writeText: false, draw: next.model !== state.model });
+}
+
+/** Replaces the model with the one a text holds, as loading an example, a link, a gist, a saved model or a file does: the form shows it, and the text is as given. */
 function setModel(text: string): void {
   editor.value = text;
-  editorChanged();
+  const next = stateFromText(text, state.model);
+  showState(next, { writeText: false, draw: true });
 }
 
 // Combination pickers
@@ -420,8 +478,8 @@ function selectedIndex(): number | undefined {
 
 async function copyLinkToClipboard(): Promise<void> {
   const index = selectedIndex();
-  const state: SharedState = index === undefined ? { model: editor.value } : { model: editor.value, index };
-  const link = await shareUrl(window.location.href, state);
+  const shared: SharedState = index === undefined ? { model: editor.value } : { model: editor.value, index };
+  const link = await shareUrl(window.location.href, shared);
   linkField.value = link;
   linkField.hidden = false;
   try {
@@ -518,7 +576,13 @@ function start(): void {
   strength.value = String(DEFAULT_STRENGTH);
   indexInput.value = "0";
 
-  editor.addEventListener("input", editorChanged);
+  editor.addEventListener("input", textTyped);
+  useLastValid.addEventListener("click", () => {
+    showState(stateFromModel(state.model), { writeText: true, draw: true, announce: "The JSON was replaced by the last valid model." });
+  });
+  emptyModelButton.addEventListener("click", () => {
+    showState(emptyState(), { writeText: true, draw: true, announce: "Started an empty model." });
+  });
   exampleSelect.addEventListener("change", () => {
     const example = EXAMPLES[Number(exampleSelect.value)];
     if (example !== undefined) setModel(exampleText(example));
