@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { Explorer, STARTING_EXAMPLE } from './explorer';
+import { Explorer } from './explorer';
 
 /** The dimensions of the starting example, and the count after one is added. */
 const STARTING_DIMENSIONS = 3;
@@ -26,9 +26,8 @@ test.describe('undo and redo', () => {
 
   test('undoes the typing in one field as one step, and redoes it', async ({ page }) => {
     const explorer = await Explorer.open(page);
-    await explorer.loadExample(STARTING_EXAMPLE);
-    await page.reload();
-    await explorer.ready();
+    await explorer.id('empty-model').click();
+    await expect(explorer.field('title:text')).toHaveValue('');
 
     await explorer.field('title:text').pressSequentially('Builds');
     expect((await explorer.json())['title']).toBe('Builds');
