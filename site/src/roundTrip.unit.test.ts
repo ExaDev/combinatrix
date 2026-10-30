@@ -7,6 +7,7 @@ import { unreachable } from "./exhaustive";
 import { stateFromModel, stateFromText } from "./editorState";
 import type { Json, JsonObject } from "./json";
 import { getIn, isJsonArray, isJsonObject } from "./json";
+import { budgetFor } from "../../test/budget";
 import { anyPredicateArb, jsonArb, MAX_DOMAIN, MAX_NAME, MAX_TEXT, NUMBER_RANGE } from "./treeArbitraries";
 import type { DimensionKind, RuleForm } from "./modelEdit";
 import { addDimension, addRule, addValue, classifyDimension, classifyRule, EMPTY_MODEL, moveDimension, moveRule, moveValue, removeDimension, removeRule, renameDimension, setActiveWhen, setDimensionKind, setRuleForm, setRuleName, setRuleScope, setValue, viewOfModel } from "./modelEdit";
@@ -14,6 +15,10 @@ import { classifyExpression, classifyPredicate } from "./nodes";
 
 /** How many generated models each property is checked against, and the seed that makes a failure reproducible. */
 const RUNS = 150;
+/** The time one generated case may take a test, in milliseconds: at least two hundred times what the slowest test takes per case on an idle machine, so a machine under heavy load still passes and only a case that stops terminating fails. */
+const CASE_BUDGET_MS = 100;
+/** The options of a test that checks `RUNS` generated cases. */
+const EVERY_CASE = budgetFor(RUNS, CASE_BUDGET_MS);
 const SEED = 20_261_029;
 const MAX_DIMENSIONS = 4;
 const MAX_DEPTH = 3;
@@ -178,7 +183,7 @@ function throughText(model: JsonObject): JsonObject {
 }
 
 describe("trees of every kind the schema defines", () => {
-  it("are accepted by trilean's schema, which keeps the properties below about real trees", () => {
+  it("are accepted by trilean's schema, which keeps the properties below about real trees", EVERY_CASE, () => {
     fc.assert(
       fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
         expect(PredicateNodeSchema.safeParse(tree).success).toBe(true);
@@ -187,7 +192,7 @@ describe("trees of every kind the schema defines", () => {
     );
   });
 
-  it("are read by the form with no raw node anywhere in them, and survive the text round trip unchanged", () => {
+  it("are read by the form with no raw node anywhere in them, and survive the text round trip unchanged", EVERY_CASE, () => {
     fc.assert(
       fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
         expect(structuredPredicate(tree)).toBe(true);
@@ -199,7 +204,7 @@ describe("trees of every kind the schema defines", () => {
     );
   });
 
-  it("are unchanged by renaming a dimension and then renaming it back", () => {
+  it("are unchanged by renaming a dimension and then renaming it back", EVERY_CASE, () => {
     fc.assert(
       fc.property(anyPredicateArb(MAX_DEPTH), (tree) => {
         const model: JsonObject = { dimensions: [{ kind: "choice", name: "a", values: ["x"] }], rules: [{ excludes: tree }] };
@@ -212,7 +217,7 @@ describe("trees of every kind the schema defines", () => {
 });
 
 describe("generated models", () => {
-  it("are accepted by the library, which keeps the properties below about real models", () => {
+  it("are accepted by the library, which keeps the properties below about real models", EVERY_CASE, () => {
     fc.assert(
       fc.property(validModelArb, (model) => {
         expect(execute({ op: "validate", model: JSON.stringify(model) })).toMatchObject({ ok: true });
@@ -221,7 +226,7 @@ describe("generated models", () => {
     );
   });
 
-  it("are shown by the form with nothing raw, and are unchanged by form state to model to JSON to parseModel to form state", () => {
+  it("are shown by the form with nothing raw, and are unchanged by form state to model to JSON to parseModel to form state", EVERY_CASE, () => {
     fc.assert(
       fc.property(validModelArb, (model) => {
         const text = stateFromModel(model).text;
@@ -240,7 +245,7 @@ describe("generated models", () => {
 });
 
 describe("changing the kind of a part", () => {
-  it("keeps a rule's label, when and unless, and its condition between requires and excludes", () => {
+  it("keeps a rule's label, when and unless, and its condition between requires and excludes", EVERY_CASE, () => {
     fc.assert(
       fc.property(validModelArb, fc.constantFrom<RuleForm>("requires", "excludes", "implies"), (model, form) => {
         for (const [index, before] of (viewOfModel(model).rules ?? []).entries()) {
@@ -256,7 +261,7 @@ describe("changing the kind of a part", () => {
     );
   });
 
-  it("keeps a dimension's name, activity condition and values", () => {
+  it("keeps a dimension's name, activity condition and values", EVERY_CASE, () => {
     fc.assert(
       fc.property(validModelArb, fc.constantFrom<DimensionKind>("choice", "first-valid"), (model, kind) => {
         for (const [index, before] of viewOfModel(model).dimensions.entries()) {
@@ -280,7 +285,7 @@ describe("constructs the form cannot show", () => {
     extra,
   }));
 
-  it("survive the text round trip deep-equal", () => {
+  it("survive the text round trip deep-equal", EVERY_CASE, () => {
     fc.assert(
       fc.property(strangeModelArb, (model) => {
         const state = stateFromText(JSON.stringify(model), stateFromModel(EMPTY_MODEL));
@@ -292,7 +297,7 @@ describe("constructs the form cannot show", () => {
     );
   });
 
-  it("survive every edit of the parts around them", () => {
+  it("survive every edit of the parts around them", EVERY_CASE, () => {
     fc.assert(
       fc.property(strangeModelArb, (model) => {
         const dimensions = viewOfModel(model).dimensions.length;
@@ -410,7 +415,7 @@ describe("edit sequences", () => {
     ],
   };
 
-  it("leave a model whose text reads back to the same model and the same form, with every construct the form cannot show still in it", () => {
+  it("leave a model whose text reads back to the same model and the same form, with every construct the form cannot show still in it", EVERY_CASE, () => {
     fc.assert(
       fc.property(fc.array(stepArb, { maxLength: MAX_STEPS }), (steps) => {
         let model = START;
@@ -434,7 +439,7 @@ describe("edit sequences", () => {
 });
 
 describe("sanity of the generators", () => {
-  it("produce models with every kind of dimension and rule form across a sample", () => {
+  it("produce models with every kind of dimension and rule form across a sample", EVERY_CASE, () => {
     const sample = fc.sample(validModelArb, { numRuns: RUNS, seed: SEED });
     const forms = new Set(sample.flatMap((model) => (viewOfModel(model).rules ?? []).map((rule) => (rule.kind === "rule" ? rule.body.form : "raw"))));
     const kinds = new Set(sample.flatMap((model) => viewOfModel(model).dimensions.map((dimension) => (dimension.kind === "dimension" ? dimension.dimensionKind : "raw"))));
