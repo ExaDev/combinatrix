@@ -281,8 +281,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The site is built from git: its footer names the release or commit it came from, and the version a commit will release as is read from the history since the last release tag, so the build needs every commit and tag.
+          fetch-depth: 0
           persist-credentials: false
-      # The files the site, its tests, the library it is built from and this workflow live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them. The diff is of two trees, so one commit of history each is enough.
+      # The files the site, its tests, the library it is built from and this workflow live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them.
       - name: Decide whether the browser tests are needed
         id: changes
         env:
@@ -385,6 +387,8 @@ jobs:
       issues: write # to comment on released issues
       pull-requests: write # to comment on released pull requests
       id-token: write # OIDC identity for npm trusted publishing and provenance (no NPM_TOKEN)
+    outputs:
+      released: ${{ steps.released.outputs.released }}
     steps:
       # The default GITHUB_TOKEN cannot bypass a repository ruleset (GitHub does not support naming the github-actions[bot] identity as a bypass actor), so semantic-release's release commit and tag push needs its own bypass identity. A deploy key with write access, listed as a DeployKey bypass actor on the main ruleset, is the lightest one: repository-scoped, with no GitHub App installation and no personal or organisation-admin credential. Because the key can push straight to main, it exists on the runner only for the last two steps: checkout does not receive it, so it is not in git config or on disk while the setup actions, the install and the npm upgrade run. That is the whole gain. Those earlier steps can still change PATH, the environment or installed code (node_modules, global npm) that later runs with the key present, so this narrows exposure to code that merely reads the secret when it runs and does not isolate the key from a compromised earlier step. Full isolation needs the install separated from the credential.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -427,6 +431,31 @@ jobs:
           # Blanked, not omitted: an inherited NPM_TOKEN or NODE_AUTH_TOKEN would otherwise be used in preference to the OIDC exchange.
           NPM_TOKEN: ''
           NODE_AUTH_TOKEN: ''
+      # semantic-release commits the release and tags that commit in this checkout, so a tag on HEAD afterwards means a release was cut, and none means the pushed commit released nothing.
+      - name: Record whether a release was cut
+        id: released
+        run: |
+          if [ -n "$(git tag --points-at HEAD)" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Remove the deploy key
         if: always()
         run: rm -rf "$RUNNER_TEMP/release-ssh"
+
+  # The site's footer links to the release a build came from only when a release tag is on the commit it is built from. A deploy of the commit that triggers a release runs before the tag exists and shows the commit, so a release starts the deploy again, from the tagged commit. A commit that releases nothing is deployed by the Pages workflow's own push trigger and needs no second deploy.
+  redeploy-site:
+    name: Redeploy site
+    needs: [determine-runner, release]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # to start the Pages workflow
+    steps:
+      - name: Start the Pages workflow on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run pages.yml --ref main
