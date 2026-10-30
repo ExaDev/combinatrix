@@ -7,6 +7,8 @@ import { CancelledError, EngineClient } from "./client";
 import type { EditorState, ItemSwitch } from "./editorState";
 import { emptyState, stateAfterEdit, stateAfterSwitch, stateFromModel, stateFromText } from "./editorState";
 import { EXAMPLES, exampleText, STARTING_EXAMPLE } from "./examples";
+import type { History } from "./history";
+import { emptyHistory, record, redo, undo } from "./history";
 import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
@@ -46,6 +48,8 @@ const formProblem = byId("form-problem", HTMLParagraphElement);
 const formStatus = byId("form-status", HTMLParagraphElement);
 const useLastValid = byId("use-last-valid", HTMLButtonElement);
 const emptyModelButton = byId("empty-model", HTMLButtonElement);
+const undoButton = byId("undo", HTMLButtonElement);
+const redoButton = byId("redo", HTMLButtonElement);
 const advanced = byId("advanced", HTMLDetailsElement);
 const exampleSelect = byId("example", HTMLSelectElement);
 const copyLink = byId("copy-link", HTMLButtonElement);
@@ -107,6 +111,9 @@ const saved = new SavedModels(() => window.localStorage, mint);
 /** The model the form shows and the JSON text in the Advanced view: edits to either change both. */
 let state: EditorState = emptyState();
 
+/** The states the editor has been in, so a change can be undone and redone. */
+let history: History<EditorState> = emptyHistory();
+
 /** The dimensions of the model in the editor, once the engine has validated exactly its current text; `undefined` while it is being checked or is invalid. */
 let dimensions: readonly DimensionSummary[] | undefined;
 let validating = false;
@@ -143,6 +150,8 @@ function refresh(): void {
   const ready = dimensions !== undefined && !validating && !operating;
   for (const button of operationButtons) button.disabled = !ready;
   for (const control of editingControls()) control.disabled = operating;
+  undoButton.disabled = operating || history.past.length === 0;
+  redoButton.disabled = operating || history.future.length === 0;
   editor.readOnly = operating;
   formFieldset.disabled = operating || state.problem !== undefined;
   cancelButton.disabled = !client.busy;
@@ -238,6 +247,10 @@ function editorChanged(): void {
 interface Update {
   readonly writeText: boolean;
   readonly draw: boolean;
+  /** Changes with the same key are one step of the history: the keystrokes in one field. */
+  readonly coalesce?: string;
+  /** `skip` for a change that is an undo or a redo, or the start of the page, which leaves nothing behind to undo. */
+  readonly history?: "skip";
   readonly focus?: string;
   readonly announce?: string;
 }
@@ -246,6 +259,7 @@ const form = new ModelForm(formContainer, { edit, editQuietly, switchTo });
 
 /** Makes `next` the state of the form and the JSON view, and has the engine check its text. */
 function showState(next: EditorState, update: Update): void {
+  if (update.history !== "skip") history = record(history, state, update.coalesce);
   state = next;
   if (update.writeText) editor.value = next.text;
   formNotice.hidden = next.problem === undefined;
@@ -266,7 +280,22 @@ function edit(change: (model: JsonObject) => JsonObject, options: EditOptions = 
 }
 
 function editQuietly(change: (model: JsonObject) => JsonObject): void {
-  showState(stateAfterEdit(state, change, "nothing"), { writeText: true, draw: false });
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset["field"] : undefined;
+  showState(stateAfterEdit(state, change, "nothing"), { writeText: true, draw: false, ...(focused === undefined ? {} : { coalesce: focused }) });
+}
+
+/** Goes back to the state before the last change, or forward to the one undone. */
+function stepHistory(direction: "undo" | "redo"): void {
+  const moved = direction === "undo" ? undo(history, state) : redo(history, state);
+  if (moved === undefined) return;
+
+  history = moved.history;
+  showState(moved.state, { writeText: true, draw: true, history: "skip", announce: direction === "undo" ? "Undid the last change." : "Redid the change." });
+}
+
+/** Whether a key pressed in this element edits text, where the browser's own undo of that text is the one wanted. */
+function editsText(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement);
 }
 
 /** The form switching an item to another variant of it: the model changes, and the editor remembers what the item was. */
@@ -277,7 +306,7 @@ function switchTo(item: ItemSwitch, options: SwitchOptions = {}): void {
 /** The JSON text changed, by typing in the Advanced view: a model the form can show updates the form, anything else leaves it showing the last valid model and keeps the text exactly as typed. */
 function textTyped(): void {
   const next = stateFromText(editor.value, state);
-  showState(next, { writeText: false, draw: next.model !== state.model });
+  showState(next, { writeText: false, draw: next.model !== state.model, coalesce: "json" });
 }
 
 /** Replaces the model with the one a text holds, as loading an example, a link, a gist, a saved model or a file does: the form shows it, and the text is as given. */
@@ -818,6 +847,21 @@ function start(): void {
   useLastValid.addEventListener("click", () => {
     showState(stateFromModel(state.model, state.memory), { writeText: true, draw: true, announce: "The JSON was replaced by the last valid model." });
   });
+  undoButton.addEventListener("click", () => {
+    stepHistory("undo");
+  });
+  redoButton.addEventListener("click", () => {
+    stepHistory("redo");
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || editsText(event.target)) return;
+
+    const key = event.key.toLowerCase();
+    if (key === "z") stepHistory(event.shiftKey ? "redo" : "undo");
+    else if (key === "y") stepHistory("redo");
+    else return;
+    event.preventDefault();
+  });
   emptyModelButton.addEventListener("click", () => {
     showState(emptyState(), { writeText: true, draw: true, announce: "Started an empty model." });
   });
@@ -848,10 +892,13 @@ function start(): void {
   clashReplace.addEventListener("click", () => void replaceWithTheirs());
   clashCopy.addEventListener("click", () => void saveTheirsAsCopy());
   void loadFromLocation().then((loaded) => {
-    if (loaded === "loaded") return;
-
-    setModel(exampleText(STARTING_EXAMPLE));
-    if (loaded === "none") markOpened();
+    if (loaded !== "loaded") {
+      setModel(exampleText(STARTING_EXAMPLE));
+      if (loaded === "none") markOpened();
+    }
+    // The page opening on its model is where undoing stops, not a change to go back from.
+    history = emptyHistory();
+    refresh();
   });
 }
 
