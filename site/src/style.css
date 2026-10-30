@@ -55,6 +55,34 @@ main {
   margin: 0 auto;
 }
 
+/*
+ * Wide windows put the Run section beside the model, so a result is on screen while the model it describes is edited, instead of 3500px below it. The breakpoint is where two columns of at least 34rem fit with a 2rem gap and the page's gutters of 1rem each side: 34 + 34 + 2 + 2 = 72rem. The Run column stays in view while the model column scrolls, and scrolls inside itself when its results are taller than the window.
+ */
+@media (min-width: 72rem) {
+  .page-header,
+  main {
+    max-width: 96rem;
+  }
+
+  .page-header p {
+    max-width: 60rem;
+  }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(34rem, 1fr) minmax(34rem, 1fr);
+    gap: 0 2rem;
+    align-items: start;
+  }
+
+  .run-panel {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+}
+
 h1 {
   margin: 24px 0 8px;
   font-family: var(--mono);
