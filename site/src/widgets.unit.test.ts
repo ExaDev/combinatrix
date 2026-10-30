@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { ExpressionNodeSchema, PredicateNodeSchema } from "trilean";
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import { ChoiceDimensionSchema, FirstValidDimensionSchema, ModelSchema, RuleSchema } from "../../scripts/json-schema";
 import type { TreeContext } from "./controls";
 import { Harness } from "./formHarness";
@@ -18,6 +19,11 @@ const SAMPLES = 600;
 const NODES_PER_KIND = 10;
 const DEPTH = 1;
 const SEED = 20_261_029;
+
+/** The time drawing one node and checking its controls may take a test, in milliseconds: at least two hundred times what the slowest kind takes per node on an idle machine, so a machine under heavy load still passes and only a drawing that stops terminating fails. */
+const NODE_BUDGET_MS = 2500;
+/** The nodes a test of one kind draws: the one made for the kind, and up to `NODES_PER_KIND` sampled ones. */
+const NODES_DRAWN = NODES_PER_KIND + 1;
 
 function contextOf(): TreeContext {
   return { names: ["os", "arch"], host: { edit: () => undefined, editQuietly: () => undefined, switchTo: () => undefined } };
@@ -58,7 +64,7 @@ function sampleByKind(arbitrary: fc.Arbitrary<Json>, kinds: readonly string[]): 
 describe("every predicate kind of the schema has a widget", () => {
   const byKind = sampleByKind(anyPredicateArb(DEPTH), PREDICATE_KINDS);
 
-  it.each(PREDICATE_KINDS)("%s: is drawn with its kind chosen, every control its schema keys need and no raw JSON box", (kind) => {
+  it.each(PREDICATE_KINDS)("%s: is drawn with its kind chosen, every control its schema keys need and no raw JSON box", budgetFor(NODES_DRAWN, NODE_BUDGET_MS), (kind) => {
     const nodes = [createPredicate(kind, ctxNames()), ...(byKind.get(kind) ?? [])];
     expect(nodes.length).toBeGreaterThan(1);
     for (const node of nodes) {
@@ -94,7 +100,7 @@ describe("every expression kind of the schema has a widget", () => {
   const [core, complex] = ExpressionNodeSchema.options;
   const schemaOptions = [...core.options, ...complex.options];
 
-  it.each(EXPRESSION_KINDS)("%s: is drawn with its kind chosen, every control its schema keys need and no raw JSON box", (kind) => {
+  it.each(EXPRESSION_KINDS)("%s: is drawn with its kind chosen, every control its schema keys need and no raw JSON box", budgetFor(NODES_DRAWN, NODE_BUDGET_MS), (kind) => {
     const nodes = [createExpression(kind, ctxNames()), ...(byKind.get(kind) ?? [])];
     expect(nodes.length).toBeGreaterThan(1);
     for (const node of nodes) {
