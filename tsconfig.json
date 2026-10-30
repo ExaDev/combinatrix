@@ -28,5 +28,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "examples", "scripts", "test", "*.config.ts", "site/vite.config.ts", "site/pwa-assets.config.ts"]
+  "include": ["src", "cli", "examples", "scripts", "test", "*.config.ts", "site/vite.config.ts", "site/pwa-assets.config.ts"]
 }

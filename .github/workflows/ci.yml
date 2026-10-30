@@ -205,6 +205,27 @@ jobs:
           assert.deepEqual(Object.keys(schema.$defs).sort(), ['ChoiceDimension', 'ExpressionNode', 'FirstValidDimension', 'JsonValue', 'Model', 'PredicateNode', 'Rule', 'Rules', 'Scalar']);
           EOF
           node check.mjs
+      - name: Run the command line through the installed package
+        working-directory: ${{ runner.temp }}/scratch
+        run: |
+          cat > model.json <<'EOF'
+          {
+            "dimensions": [
+              { "kind": "choice", "name": "os", "values": ["linux", "macos", "windows"] },
+              { "kind": "choice", "name": "arch", "values": ["x64", "arm64"] }
+            ],
+            "rules": [
+              {
+                "excludes": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "arch" }, "right": { "kind": "textLiteral", "value": "arm64" } },
+                "when": { "kind": "textCompare", "op": "equals", "left": { "kind": "reference", "key": "os" }, "right": { "kind": "textLiteral", "value": "windows" } }
+              }
+            ]
+          }
+          EOF
+          test "$(./node_modules/.bin/combinatrix count model.json)" = "5"
+          test "$(./node_modules/.bin/combinatrix list model.json --format csv | wc -l)" -eq 6
+          ./node_modules/.bin/combinatrix check model.json
+          ./node_modules/.bin/combinatrix dead model.json
       # The published declarations must compile for a consumer whose program declares neither the DOM library nor any runtime's types, since the library runs in any runtime: lib is ES2024 alone, types is empty, and skipLibCheck is off so an undeclared name in the package's own declarations, or in trilean's, fails the check. trilean's tree types are inferred from zod schemas, so the program loads zod's declarations too, and zod's name the `URL` global, which only the DOM library or a runtime's types declare: that diagnostic, in zod's own files, is the one the check allows, and any other fails it. It uses the TypeScript the workspace installed, so the consumer project needs no install of its own.
       - name: Compile a TypeScript consumer with no DOM library and no type packages
         working-directory: ${{ runner.temp }}/scratch

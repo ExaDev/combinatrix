@@ -525,6 +525,26 @@ true
 */
 ```
 
+## Command line
+
+The package installs a `combinatrix` command that answers questions about a model written as JSON, the data form of a model that `parseModel` reads and the published schema describes. It reads a file, or standard input for `-`, and runs on Node.js 22 or later:
+
+```sh
+npx combinatrix count model.json
+combinatrix list model.json --format csv
+combinatrix cover model.json --strength 2 --format matrix
+```
+
+| Command | Prints |
+| --- | --- |
+| `check` | whether the model is valid and how many dimensions and rules it has, or every defect it has |
+| `count` | the number of valid combinations |
+| `list` | the valid combinations in enumeration order, up to `--limit` (a model with more is refused, naming the option) |
+| `cover` | a covering array of `--strength` (pairwise by default): valid combinations that together contain every combination of that many dimensions' values |
+| `dead` | the values no valid combination uses; the exit status is 1 if there are any |
+
+`list` and `cover` write JSON by default, CSV with `--format csv`, and with `--format matrix` the `include` matrix of a GitHub Actions job, which runs each row as it is: `fromJson` the output into a job's `strategy.matrix`. `toJson`, `toCsv` and `toActionsMatrix` are the same writers for code. The exit status is 0 on success, 1 when the model or a limit refuses the request and 2 when the command line is wrong.
+
 ## API
 
 ### Typed and untyped routes
@@ -606,6 +626,10 @@ The schema covers only what is data. Computed dimensions, `sampled` domains, `pr
 - `combinations(model, { strategy?, limit?, signal? })`: a generator of `{ id, values }`, computing nothing until advanced. The order is deterministic: for `full`, lexicographic in declaration order with the first dimension varying slowest. The id is the 64-bit FNV-1a hash of the combination's canonical form, so equal combinations have equal ids whatever produced them. An aborted `signal` makes the next advance throw its reason.
 - `collect(model, { strategy?, limit?, signal? })`: the same as an array. With a `limit` it throws `LimitExceededError` rather than materialising more than that; with none it materialises the whole selection, so memory grows with the size of the solution set.
 - `count(model, { limit?, signal? })`: the size of the solution set without building it, throwing `LimitExceededError` as soon as the count passes `limit` when one is given. The count of the dimensions after a point depends only on the frontier there: the values of the dimensions before it that a constraint, condition or computed dimension after it still reads. Each frontier state is counted once and remembered for the rest of the call, so the work grows with the number of distinct frontier states rather than with the solution set, and loosely coupled constraints (a chain between neighbouring dimensions, say) are counted in work polynomial in the number of dimensions where the solution set is exponential. A suffix of dimensions that no constraint, condition or candidate list touches is counted as a product without being visited.
+
+### Exporting combinations
+
+`toJson(names, rows)`, `toCsv(names, rows)` and `toActionsMatrix(names, rows)` write combinations (the `values` of what `collect` returns) as a JSON array of objects, as CSV (RFC 4180), and as the `{ "include": [...] }` matrix of a GitHub Actions job, with the dimensions in the order of `names`, usually `model.dimensions.map(({ name }) => name)`. A dimension that is unset is an empty CSV field and has no key in JSON, which has no `undefined`. The command line and the explorer write their results with them.
 
 ### Random access and sampling
 
