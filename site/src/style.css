@@ -118,10 +118,13 @@ p {
   color: var(--muted);
 }
 
+/* A label is as wide as the widest of its contents, and a menu is as wide as its longest option, so a label is held to the width of what holds it: the menu then shortens its text instead of making the page wider than the window. */
 label {
   display: inline-flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 0.9rem;
   color: var(--muted);
 }
