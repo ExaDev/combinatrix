@@ -13,6 +13,8 @@
   --rail: #9aa6ba;
   --ok: #1d6b34;
   --gutter: 16px;
+  /* The least height of a control on a touch screen: the 44 CSS pixels WCAG 2.5.5 and the platforms' guidelines give for a target a finger must hit. */
+  --touch-target: 44px;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -185,6 +187,17 @@ button,
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  button,
+  .file-button,
+  select,
+  input[type="text"],
+  input[type="number"],
+  summary {
+    min-height: var(--touch-target);
+  }
 }
 
 #cancel,

@@ -269,7 +269,7 @@ function referenceKey(ctx: TreeContext, spec: NodeSpec, key: Json): HTMLElement 
       referencePicker(ctx, { ...spec, key }),
       button({
         field: fieldId(spec.path, "not-text"),
-        ariaLabel: childLabel(spec.label, "use a key that is not text"),
+        ariaLabel: childLabel(spec.label, "other key, which is not text"),
         label: "Other key",
         small: true,
         onClick: () => {
