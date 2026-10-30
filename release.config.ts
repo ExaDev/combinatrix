@@ -34,7 +34,7 @@ export const commitTypes: readonly CommitType[] = [
 /**
  * Commit scopes for parts of the repository that are not in the published package (the `files` of package.json), so a commit scoped to one never cuts a release however its type would otherwise. Every type in `commitTypes` releases, so a scope is the only way to say that a change does not reach the package.
  */
-export const unreleasedScopes: readonly string[] = ['site', 'workflows'];
+export const unreleasedScopes: readonly string[] = ['site', 'workflows', 'suite'];
 
 /**
  * The rules commit-analyzer applies, in order: a breaking change is major, each type releases at its level, and a commit in an unreleased scope does not release. commit-analyzer walks the rules a commit matches in order and a later `false` replaces any release type found before it, while an earlier `false` is replaced by a later release type, so the scope rules must come last to take precedence over the type rules. A breaking change is the exception: it ends the analysis at major, so one marked breaking releases whatever its scope, which is right, since it says the package breaks.
