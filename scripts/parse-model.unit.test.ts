@@ -37,6 +37,19 @@ describe("isModelData", () => {
     expectAgreement(model, isModelData, accepts("Model"));
   });
 
+  it("agrees with the JSON Schema on a model that declares a \"$schema\", whatever it holds", ONE_PROPERTY, () => {
+    const declared = fc.oneof(fc.string(), fc.jsonValue());
+    const validModel = accepts("Model");
+    fc.assert(
+      fc.property(model, declared, (data, schemaValue) => {
+        const written: unknown = { $schema: schemaValue, ...data };
+        expect(isModelData(written), JSON.stringify(written)).toBe(validModel(written));
+        expect(isModelData(written), JSON.stringify(written)).toBe(typeof schemaValue === "string");
+      }),
+      { seed: SEED, numRuns: RUNS },
+    );
+  });
+
   it("accepts every value the schema's Model accepts, and every value it accepts the schema's root accepts", ONE_PROPERTY, () => {
     const validModel = accepts("Model");
     const validRoot = accepts(undefined);
@@ -86,6 +99,19 @@ describe("parseModel", () => {
         expect(collect(parsed), JSON.stringify(data)).toEqual(collect(written));
         expect(parsed.dimensions).toEqual(written.dimensions);
         expect(parsed.rules).toEqual(written.rules);
+      }),
+      { seed: SEED, numRuns: RUNS },
+    );
+  });
+
+  it("builds the same model whether or not the data declares a \"$schema\"", ONE_PROPERTY, () => {
+    fc.assert(
+      fc.property(model, fc.string(), (data, schemaValue) => {
+        const plain = parseModel(data);
+        const declared = parseModel({ $schema: schemaValue, ...data });
+        expect(declared.dimensions, JSON.stringify(data)).toEqual(plain.dimensions);
+        expect(declared.rules, JSON.stringify(data)).toEqual(plain.rules);
+        expect(collect(declared)).toEqual(collect(plain));
       }),
       { seed: SEED, numRuns: RUNS },
     );
