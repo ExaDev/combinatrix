@@ -24,7 +24,7 @@ import { startPwa } from "./pwa";
 import type { Clash } from "./reconcile";
 import { meet } from "./reconcile";
 import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
-import { restoreFrom } from "./restore";
+import { GIST_PARAMETER, restoreFrom } from "./restore";
 import { SavedModels } from "./saved";
 
 /** How long after the last keystroke the editor's text is checked, so typing does not start a check per key. */
@@ -115,6 +115,8 @@ let debounce: ReturnType<typeof setTimeout> | undefined;
 /** The state and address the page opened with, once it has opened: the address bar shows this address whenever the page is in this state, and a link holding the state otherwise. */
 let opened: Opened | undefined;
 let addressTimer: ReturnType<typeof setTimeout> | undefined;
+/** Whether the address bar holds the model and index the page shows, so that reloading the page from its address restores them. It is false from every change until the address has been written, and while the address cannot hold the model or would fetch it. */
+let addressHoldsPage = false;
 /** Counts writes of the address, so that one superseded while its link was being made is dropped. */
 let addressRevision = 0;
 
@@ -515,6 +517,7 @@ function sharedState(): SharedState {
 
 /** The address bar follows the page: it holds a link to the model and index shown, so copying it from the browser is the same as Copy link. */
 function addressChanged(): void {
+  addressHoldsPage = false;
   clearTimeout(addressTimer);
   addressTimer = setTimeout(() => void writeAddress(), ADDRESS_DEBOUNCE_MS);
 }
@@ -528,6 +531,8 @@ async function writeAddress(): Promise<void> {
   if (revision !== addressRevision) return;
 
   window.history.replaceState(window.history.state, "", address.href);
+  // A gist in the address is fetched again by a reload, so the model survives only while the network does.
+  addressHoldsPage = address.kind === "link" || (address.kind === "unchanged" && !new URL(address.href).searchParams.has(GIST_PARAMETER));
   addressStatus.textContent = address.kind === "too-large" ? "This model is too large for the address bar, which has stopped following your edits. Share it as a gist." : "";
 }
 
@@ -671,11 +676,13 @@ function keepMine(): void {
   if (current.clash.source === "saved") setModel(current.clash.mine);
   if (current.link === undefined) return;
 
+  // The clean address was opened with no model, so the model shown is a change and the address follows it with a link to it.
   const clean = new URL(window.location.href);
   clean.search = "";
   clean.hash = "";
   window.history.replaceState(window.history.state, "", clean.href);
-  opened = { href: clean.href, state: sharedState() };
+  opened = { href: clean.href, state: { model: "" } };
+  addressChanged();
 }
 
 /** Replace with theirs: mine is saved first as a copy under an id of its own, so that it is never lost, then the arriving model is opened. */
@@ -804,4 +811,4 @@ function start(): void {
 }
 
 start();
-startPwa();
+startPwa(() => addressHoldsPage && !operating && held === undefined);

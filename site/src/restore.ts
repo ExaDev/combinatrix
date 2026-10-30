@@ -10,7 +10,7 @@ export interface LocationParts {
 }
 
 /** The query parameter that names a public gist to load. */
-const GIST_PARAMETER = "gist";
+export const GIST_PARAMETER = "gist";
 
 /**
  * The state a location asks for, or `undefined` when it asks for none. A fragment wins over a gist, because the fragment is what the page's own Copy link writes after the model has been edited. Throws `SharedStateError` or `GistError` when the one it uses is unusable.

@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 import type { Page } from '@playwright/test';
-import { encodeState } from '../site/src/fragment';
+import { decodeState, encodedStateOf, encodeState } from '../site/src/fragment';
 import type { JsonObject } from '../site/src/json';
+import { parseJson } from '../site/src/json';
 import { Explorer, RESULT_TIMEOUT_MS, STARTING_EXAMPLE } from './explorer';
 
 /** A durable id as the page mints it: a UUID. */
@@ -26,6 +27,20 @@ async function saveAs(explorer: Explorer, model: JsonObject, name: string): Prom
 /** The fragment of a link to a model, as the page's Copy link writes it. */
 async function linkTo(model: JsonObject): Promise<string> {
   return `#s=${await encodeState({ model: JSON.stringify(model) })}`;
+}
+
+/** Waits until the address bar holds a link to this model, which is where "keep mine" leaves it. */
+async function addressHolds(page: Page, model: JsonObject): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const encoded = encodedStateOf(new URL(page.url()).hash);
+
+        return encoded === undefined ? undefined : parseJson((await decodeState(encoded)).model);
+      },
+      { timeout: RESULT_TIMEOUT_MS },
+    )
+    .toEqual(model);
 }
 
 /** Opens a link to a model in the page that is open, as following a link to the same page does. */
@@ -105,7 +120,7 @@ test.describe('a model with a durable id', () => {
 
       await expect(explorer.id('clash')).toBeHidden();
       expect(await explorer.json()).toEqual(before);
-      expect(new URL(page.url()).hash).toBe('');
+      await addressHolds(page, before);
       await expect(page.locator('#saved-list li')).toHaveCount(1);
     });
 
@@ -157,7 +172,7 @@ test.describe('a model with a durable id', () => {
       await explorer.id('clash-keep').click();
       await explorer.ready();
       expect(await explorer.json()).toEqual(MINE);
-      expect(new URL(page.url()).hash).toBe('');
+      await addressHolds(page, MINE);
     });
 
     test('opens without asking when the content is the same', async ({ page }) => {

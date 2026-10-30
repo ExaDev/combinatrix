@@ -17,7 +17,8 @@ async function outcome(failure: Error | undefined): Promise<void> {
 
 /** The worker, the prompt and the page around the update logic, driven by hand: each records what the logic asks of it and exposes the events a browser or a user would cause. */
 function setup(failures: { readonly register?: Error; readonly check?: Error } = {}) {
-  const listeners = { firstInstall: [] as Listener[], waiting: [] as Listener[], controlling: [] as Listener[], update: [] as Listener[], dismiss: [] as Listener[], visible: [] as Listener[] };
+  const listeners = { firstInstall: [] as Listener[], waiting: [] as Listener[], controlling: [] as Listener[], update: [] as Listener[], dismiss: [] as Listener[], visible: [] as Listener[], hidden: [] as Listener[] };
+  const page = { reloadable: true };
   const seen = { offlineReady: 0, registrations: 0, checks: 0, activations: 0, reloads: 0, shown: false, reported: [] as unknown[] };
 
   watchForUpdates(
@@ -67,6 +68,10 @@ function setup(failures: { readonly register?: Error; readonly check?: Error } =
       onVisible: (listener) => {
         listeners.visible.push(listener);
       },
+      onHidden: (listener) => {
+        listeners.hidden.push(listener);
+      },
+      canReloadUnnoticed: () => page.reloadable,
       report: (error) => {
         seen.reported.push(error);
       },
@@ -75,6 +80,7 @@ function setup(failures: { readonly register?: Error; readonly check?: Error } =
 
   return {
     seen,
+    page,
     installFirst: () => {
       fire(listeners.firstInstall);
     },
@@ -92,6 +98,9 @@ function setup(failures: { readonly register?: Error; readonly check?: Error } =
     },
     becomeVisible: () => {
       fire(listeners.visible);
+    },
+    becomeHidden: () => {
+      fire(listeners.hidden);
     },
   };
 }
@@ -154,6 +163,66 @@ describe("watchForUpdates", () => {
     expect(seen.shown).toBe(false);
     expect(seen.activations).toBe(0);
     expect(seen.reloads).toBe(0);
+  });
+
+  it("takes over a waiting update by itself when the page is hidden and reloading would leave it as it is, and reloads once it has", () => {
+    const { seen, installWaiting, becomeHidden, takeOver } = setup();
+    installWaiting();
+    becomeHidden();
+
+    expect(seen.activations).toBe(1);
+    expect(seen.reloads).toBe(0);
+
+    takeOver();
+
+    expect(seen.reloads).toBe(1);
+  });
+
+  it("does so after the user put the update off, since later is not never", () => {
+    const { seen, installWaiting, pressLater, becomeHidden } = setup();
+    installWaiting();
+    pressLater();
+    becomeHidden();
+
+    expect(seen.activations).toBe(1);
+  });
+
+  it("leaves a waiting update for the prompt when reloading would change the page", () => {
+    const { seen, page, installWaiting, becomeHidden } = setup();
+    installWaiting();
+    page.reloadable = false;
+    becomeHidden();
+
+    expect(seen.activations).toBe(0);
+    expect(seen.shown).toBe(true);
+  });
+
+  it("takes it over at a later hiding once the page can be reloaded as it is", () => {
+    const { seen, page, installWaiting, becomeHidden } = setup();
+    installWaiting();
+    page.reloadable = false;
+    becomeHidden();
+    page.reloadable = true;
+    becomeHidden();
+
+    expect(seen.activations).toBe(1);
+  });
+
+  it("does nothing when the page is hidden and no update is waiting", () => {
+    const { seen, becomeHidden } = setup();
+    becomeHidden();
+
+    expect(seen.activations).toBe(0);
+    expect(seen.reloads).toBe(0);
+  });
+
+  it("takes a waiting update over only once, however often the page is hidden", () => {
+    const { seen, installWaiting, becomeHidden } = setup();
+    installWaiting();
+    becomeHidden();
+    becomeHidden();
+
+    expect(seen.activations).toBe(1);
   });
 
   it("looks for a newer worker each time the page becomes visible again", () => {

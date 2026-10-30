@@ -11,8 +11,8 @@ function showBuild(): void {
   link.title = title;
 }
 
-/** Registers the service worker and offers the user a newer version when one is waiting. A page that cannot register one, and the dev server, which has none, simply run without it. */
-function startUpdates(): void {
+/** Registers the service worker and offers the user a newer version when one is waiting. A page that cannot register one, and the dev server, which has none, simply run without it. `canReloadUnnoticed` says whether reloading the page now would leave it as it is, which lets a waiting update install while the page is hidden. */
+function startUpdates(canReloadUnnoticed: () => boolean): void {
   if (!__REGISTER_SERVICE_WORKER__ || !("serviceWorker" in navigator)) return;
 
   const prompt = byId("update-prompt", HTMLElement);
@@ -49,6 +49,12 @@ function startUpdates(): void {
           if (document.visibilityState === "visible") listener();
         });
       },
+      onHidden: (listener) => {
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") listener();
+        });
+      },
+      canReloadUnnoticed,
       report: (error) => {
         console.error("The offline service worker is unavailable:", error);
       },
@@ -57,7 +63,7 @@ function startUpdates(): void {
 }
 
 /** Fills in what the build supplies and starts the offline support. */
-export function startPwa(): void {
+export function startPwa(canReloadUnnoticed: () => boolean): void {
   showBuild();
-  startUpdates();
+  startUpdates(canReloadUnnoticed);
 }

@@ -112,6 +112,19 @@ async function checkForUpdate(page: Page): Promise<void> {
   });
 }
 
+/** Has the page report itself hidden, as switching to another tab does: the visibility state is replaced and the event the browser would send is sent. */
+async function hide(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+/** Waits until the address bar holds the page's model, which is when a reload would restore it. */
+async function addressFollows(page: Page): Promise<void> {
+  await expect.poll(() => new URL(page.url()).hash, { timeout: RESULT_TIMEOUT_MS }).toContain('#s=');
+}
+
 test.describe('installable', () => {
   test('serves a manifest that makes the page an installable app under its own address', async ({ page }) => {
     await withSite(async (site) => {
@@ -245,6 +258,52 @@ test.describe('updates', () => {
 
       await expect(explorer.id('update-prompt')).toBeHidden();
       expect(await activeBuild(context)).toBe(1);
+    });
+  });
+
+  test('installs a waiting update by itself when the page is hidden, and the reloaded page shows the same model', async ({ page, context }) => {
+    await withSite(async (site, deployment) => {
+      const explorer = await controlledPage(page, site);
+      await explorer.field('title:text').fill('Kept across the update');
+      await addressFollows(page);
+      deployment.deploy();
+      await checkForUpdate(page);
+      await expect(explorer.id('update-prompt')).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+      expect(await activeBuild(context)).toBe(1);
+
+      await hide(page);
+
+      await expect.poll(async () => activeBuild(context), { timeout: RESULT_TIMEOUT_MS }).toBe(2);
+      await explorer.ready();
+      await expect(explorer.field('title:text')).toHaveValue('Kept across the update');
+      await expect(explorer.id('update-prompt')).toBeHidden();
+    });
+  });
+
+  test('leaves a waiting update for the prompt when the page is hidden with a model it cannot restore from its address', async ({ page, context }) => {
+    await withSite(async (site, deployment) => {
+      const explorer = await controlledPage(page, site);
+      await explorer.setJson({ id: 'foo', dimensions: [{ kind: 'choice', name: 'os', values: ['linux'] }] });
+      await explorer.id('save-name').fill('mine');
+      await explorer.id('save').click();
+      await expect(explorer.id('saved-status')).toContainText('Saved mine.');
+      // A copy with the same id and other content waits for the person to choose, which is state the address does not hold.
+      await page.goto(await shareUrl(site.url, { model: JSON.stringify({ id: 'foo', dimensions: [{ kind: 'choice', name: 'os', values: ['linux', 'macos'] }] }) }));
+      await expect(explorer.id('clash')).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+      deployment.deploy();
+      await checkForUpdate(page);
+      await expect(explorer.id('update-prompt')).toBeVisible({ timeout: RESULT_TIMEOUT_MS });
+
+      await hide(page);
+
+      await expect(explorer.id('clash')).toBeVisible();
+      expect(await activeBuild(context)).toBe(1);
+      // Once the choice is made and the address holds the model, the same update installs on hiding.
+      await explorer.id('clash-keep').click();
+      await addressFollows(page);
+      await hide(page);
+
+      await expect.poll(async () => activeBuild(context), { timeout: RESULT_TIMEOUT_MS }).toBe(2);
     });
   });
 });

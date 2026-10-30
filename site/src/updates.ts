@@ -33,31 +33,44 @@ export interface UpdateEnvironment {
   readonly reload: () => void;
   /** Calls the listener each time the page becomes visible again. */
   readonly onVisible: (listener: () => void) => void;
+  /** Calls the listener each time the page is hidden, as when the user switches to another tab or window. */
+  readonly onHidden: (listener: () => void) => void;
+  /** Whether reloading the page now would leave it as it is: everything the page holds is in its address or can be made again. A reload restores the page from its address, so this is false while an edit has not reached the address, while the address cannot hold the model, and while the page holds something the address does not. */
+  readonly canReloadUnnoticed: () => boolean;
   /** Reports a failure the user does not need to see: the page works without a service worker. */
   readonly report: (error: unknown) => void;
 }
 
 /**
- * Wires a service worker to the update prompt. A newer worker is installed in the background and left waiting; the prompt offers it, and only the user's choice lets it take over and reloads the page, so a running session is never swapped under the user. The browser looks for a newer worker on each navigation; this also looks each time the page becomes visible again, so a page left open in the background hears of a release when it is next seen.
+ * Wires a service worker to the update prompt. A newer worker is installed in the background and left waiting. While the page is in view the prompt offers it, and only the user's choice lets it take over and reload the page, so a session the user is looking at is never swapped under them. Once the page is hidden, a waiting update takes over by itself if reloading would leave the page as it is (`canReloadUnnoticed`), so an installed copy that is kept open does not stay on an old build; otherwise it keeps waiting for the prompt. The browser looks for a newer worker on each navigation; this also looks each time the page becomes visible again, so a page left open in the background hears of a release when it is next seen.
  *
  * A browser that cannot register the worker is left as it is: the page works online without one, so the failure goes to `report` and nowhere else.
  */
 export function watchForUpdates(source: UpdateSource, view: UpdateView, environment: UpdateEnvironment): void {
   let updating = false;
+  let waiting = false;
 
-  source.onFirstInstall(view.offlineReady);
-  source.onWaiting(view.show);
-  source.onControlling(() => {
-    // A worker can also take over a page that never asked, such as the first one to install; only the update the user chose reloads it.
-    if (updating) environment.reload();
-  });
-  view.onUpdate(() => {
+  function takeOver(): void {
     updating = true;
     source.activateWaiting();
+  }
+
+  source.onFirstInstall(view.offlineReady);
+  source.onWaiting(() => {
+    waiting = true;
+    view.show();
   });
+  source.onControlling(() => {
+    // A worker can also take over a page that never asked, such as the first one to install; only an update the user chose, or one taken over while the page was hidden, reloads it.
+    if (updating) environment.reload();
+  });
+  view.onUpdate(takeOver);
   view.onDismiss(view.hide);
   environment.onVisible(() => {
     source.checkForUpdate().catch(environment.report);
+  });
+  environment.onHidden(() => {
+    if (waiting && !updating && environment.canReloadUnnoticed()) takeOver();
   });
 
   source.register().catch(environment.report);
