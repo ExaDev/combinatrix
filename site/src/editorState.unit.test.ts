@@ -4,6 +4,7 @@ import { emptyState, nodeSwitch, stateAfterEdit, stateAfterSwitch, stateFromMode
 import type { JsonObject } from "./json";
 import { NO_MEMORY, noSlots } from "./typeMemory";
 import { convertJson } from "./modelEdit";
+import { SCHEMA_URL } from "./schema";
 
 const PREVIOUS: JsonObject = { dimensions: [{ kind: "choice", name: "kept", values: ["a"] }] };
 const BEFORE = stateFromModel(PREVIOUS);
@@ -17,8 +18,12 @@ describe("stateFromModel", () => {
     expect(state.problem).toBeUndefined();
   });
 
-  it("starts empty with a model that has no dimensions", () => {
-    expect(emptyState().model).toEqual({ dimensions: [] });
+  it("starts empty with a model that has no dimensions and names the schema it is written against", () => {
+    expect(emptyState().model).toEqual({ $schema: SCHEMA_URL, dimensions: [] });
+  });
+
+  it("writes the schema first, where an editor looks for it", () => {
+    expect(emptyState().text).toBe(`{\n  "$schema": ${JSON.stringify(SCHEMA_URL)},\n  "dimensions": []\n}`);
   });
 });
 
