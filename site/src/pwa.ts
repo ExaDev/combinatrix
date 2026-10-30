@@ -18,6 +18,7 @@ function startUpdates(): void {
   const prompt = byId("update-prompt", HTMLElement);
   const update = byId("update-now", HTMLButtonElement);
   const dismiss = byId("update-later", HTMLButtonElement);
+  const offlineStatus = byId("offline-status", HTMLElement);
 
   watchForUpdates(
     // Relative to the page, so it is found under the repository's project-page path and under a preview of the build.
@@ -28,6 +29,9 @@ function startUpdates(): void {
       },
       hide: () => {
         prompt.hidden = true;
+      },
+      offlineReady: () => {
+        offlineStatus.textContent = "Ready to work offline.";
       },
       onUpdate: (listener) => {
         update.addEventListener("click", listener);

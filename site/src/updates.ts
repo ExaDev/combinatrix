@@ -4,6 +4,8 @@ import { Workbox } from "workbox-window";
 export interface UpdateSource {
   /** Registers the worker. Rejects when the browser cannot. */
   readonly register: () => Promise<void>;
+  /** Calls the listener when the first worker for this browser has installed and cached the site, so it will open with no network from now on. A later worker does not call it. */
+  readonly onFirstInstall: (listener: () => void) => void;
   /** Calls the listener when a newer worker has installed and is waiting for the page to let it take over. */
   readonly onWaiting: (listener: () => void) => void;
   /** Calls the listener when a newer worker has taken over the page. */
@@ -18,6 +20,8 @@ export interface UpdateSource {
 export interface UpdateView {
   readonly show: () => void;
   readonly hide: () => void;
+  /** Tells the user the site is cached and will open with no network. */
+  readonly offlineReady: () => void;
   /** Calls the listener when the user asks to update now. */
   readonly onUpdate: (listener: () => void) => void;
   /** Calls the listener when the user puts the update off. */
@@ -41,6 +45,7 @@ export interface UpdateEnvironment {
 export function watchForUpdates(source: UpdateSource, view: UpdateView, environment: UpdateEnvironment): void {
   let updating = false;
 
+  source.onFirstInstall(view.offlineReady);
   source.onWaiting(view.show);
   source.onControlling(() => {
     // A worker can also take over a page that never asked, such as the first one to install; only the update the user chose reloads it.
@@ -65,6 +70,11 @@ export function workboxSource(url: string): UpdateSource {
   return {
     register: async () => {
       await workbox.register();
+    },
+    onFirstInstall: (listener) => {
+      workbox.addEventListener("installed", (event) => {
+        if (event.isUpdate !== true) listener();
+      });
     },
     onWaiting: (listener) => {
       workbox.addEventListener("waiting", listener);
