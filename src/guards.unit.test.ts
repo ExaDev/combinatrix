@@ -96,6 +96,11 @@ describe("isModelData", () => {
     expect(isModelData({ $schema: "https://example.com/combinatrix.schema.json", dimensions: [] })).toBe(true);
   });
 
+  it("accepts an \"id\", a \"title\" and a \"description\", which name and describe the model", () => {
+    expect(isModelData({ id: "3f9c1d7e", title: "Builds", description: "Where it builds.", dimensions: [] })).toBe(true);
+    expect(isModelData({ title: "", description: "", dimensions: [] })).toBe(true);
+  });
+
   it("narrows to the data type", () => {
     const parsed: unknown = JSON.parse(MODEL_JSON);
     if (!isModelData(parsed)) throw new Error("the fixture is model data");
@@ -111,6 +116,10 @@ describe("isModelData", () => {
     { dimensions: [], extra: true },
     { $schema: 1, dimensions: [] },
     { $schema: null, dimensions: [] },
+    { id: 1, dimensions: [] },
+    { id: "", dimensions: [] },
+    { title: null, dimensions: [] },
+    { description: ["a"], dimensions: [] },
     { dimensions: [], constraints: [] },
     { dimensions: [{ kind: "choice", name: "a", values: [] }] },
     { dimensions: [{ kind: "choice", name: "", values: ["x"] }] },

@@ -39,22 +39,37 @@ function fitsDimensions<T extends Readonly<Record<string, Value>>>(rule: Rule, b
 export interface ModelData {
   /** The URI of the JSON Schema the model is written against, which an editor reads to check the file. It has no effect on the model. */
   readonly $schema?: string;
+  /** A durable identifier: it names the model across copies, edits and renames, and says nothing about its content. It has no effect on the model. */
+  readonly id?: string;
+  /** A short human-readable name for the model. It has no effect on the model. */
+  readonly title?: string;
+  /** What the model is for. It has no effect on the model. */
+  readonly description?: string;
   /** The dimensions, in enumeration order: the first varies slowest. */
   readonly dimensions: readonly (ChoiceDimension<string, Scalar> | FirstValidDimension<string, Scalar>)[];
   /** Declarative constraints over the dimensions. */
   readonly rules?: readonly Rule[];
 }
 
+/** The keys of model data that describe the file and are not part of the definition `defineModel` takes. Each must be a string, and an `id` must not be empty. */
+const METADATA_KEYS = ["$schema", "id", "title", "description"] as const;
+
 /**
- * Every way a value fails to be well-formed model data, which is exactly the shape the published JSON Schema states for a model: a definition with only `dimensions` and `rules`, and optionally a `$schema` string naming the JSON Schema it is written against; choice and first-valid dimensions only, each with a non-empty name and a non-empty list of distinct JSON scalars (never `undefined`, which JSON cannot carry); well-formed conditions and rules. Names, values and references that depend on the whole model are not shape and are checked by `defineModel`, which `parseModel` calls.
+ * Every way a value fails to be well-formed model data, which is exactly the shape the published JSON Schema states for a model: a definition with only `dimensions` and `rules`, and optionally the string keys `$schema` (the JSON Schema it is written against), `id`, `title` and `description` (which name and describe the model, `id` not being empty); choice and first-valid dimensions only, each with a non-empty name and a non-empty list of distinct JSON scalars (never `undefined`, which JSON cannot carry); well-formed conditions and rules. Names, values and references that depend on the whole model are not shape and are checked by `defineModel`, which `parseModel` calls.
  */
 function modelDataIssues(data: unknown): string[] {
   if (!isRecord(data)) return modelShapeIssues(data);
 
-  // `$schema` belongs to the file, not to the definition `defineModel` takes, so the definition's own check never sees it.
-  const { $schema: declared, ...definition } = data;
+  // The metadata belongs to the file, not to the definition `defineModel` takes, so the definition's own check never sees it.
+  const definition = Object.fromEntries(Object.entries(data).filter(([key]) => !isMetadataKey(key)));
   const issues = modelShapeIssues(definition);
-  if (Object.hasOwn(data, "$schema") && typeof declared !== "string") issues.push('the model data has a "$schema" that is not a string');
+  for (const key of METADATA_KEYS) {
+    if (!Object.hasOwn(data, key)) continue;
+
+    const value = data[key];
+    if (typeof value !== "string") issues.push(`the model data has a "${key}" that is not a string`);
+    else if (key === "id" && value === "") issues.push('the model data has an empty "id"');
+  }
 
   if (Object.hasOwn(data, "constraints")) issues.push("the model data has constraints, which are functions and not data");
   const { dimensions } = data;
@@ -79,6 +94,10 @@ function modelDataIssues(data: unknown): string[] {
   });
 
   return issues;
+}
+
+function isMetadataKey(key: string): boolean {
+  return METADATA_KEYS.some((metadata) => metadata === key);
 }
 
 /**

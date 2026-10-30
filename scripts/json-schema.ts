@@ -83,6 +83,9 @@ export const FirstValidDimensionSchema = z
 export const ModelSchema = z
   .strictObject({
     $schema: z.string().optional().describe("The URI of the JSON Schema the model is written against, which an editor reads to check the file. It has no effect on the model."),
+    id: z.string().min(1).optional().describe("A durable identifier: it names the model across copies, edits and renames, and says nothing about its content. It has no effect on the model."),
+    title: z.string().optional().describe("A short human-readable name for the model. It has no effect on the model."),
+    description: z.string().optional().describe("What the model is for. It has no effect on the model."),
     dimensions: z.array(z.union([ChoiceDimensionSchema, FirstValidDimensionSchema])).describe("The dimensions, in enumeration order: the first varies slowest."),
     rules: RulesSchema.optional().describe("Declarative constraints over the dimensions."),
   })
