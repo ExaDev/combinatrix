@@ -24,6 +24,7 @@ import { startPwa } from "./pwa";
 import type { Clash } from "./reconcile";
 import { meet } from "./reconcile";
 import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
+import { toActionsMatrix, toCsv, toJson } from "./resultExport";
 import { GIST_PARAMETER, restoreFrom } from "./restore";
 import { SavedModels } from "./saved";
 
@@ -379,7 +380,7 @@ async function listOperation(): Promise<void> {
     output,
     show: (result) => {
       const summary = result.truncated ? `The first ${String(result.rows.length)} combinations. There are more: raise the limit to see them.` : `All ${combinationsPhrase(result.rows.length)}.`;
-      output.replaceChildren(textElement("p", summary), rowsFor(result.rows, "Combinations in enumeration order", 0));
+      output.replaceChildren(textElement("p", summary), rowsFor(result.rows, "Combinations in enumeration order", 0), exportButtons(result.rows, "combinatrix-combinations"));
     },
   });
 }
@@ -441,7 +442,7 @@ async function coveringOperation(): Promise<void> {
     output,
     show: (result) => {
       const summary = textElement("p", `${String(result.rows.length)} row${result.rows.length === 1 ? "" : "s"} cover every combination of ${String(chosen)} dimension values that any valid combination contains.`);
-      output.replaceChildren(summary, verificationNote(result.verification), rowsFor(result.rows, `Covering array of strength ${String(chosen)}`, undefined));
+      output.replaceChildren(summary, verificationNote(result.verification), rowsFor(result.rows, `Covering array of strength ${String(chosen)}`, undefined), exportButtons(result.rows, "combinatrix-covering-array"));
     },
   });
 }
@@ -565,14 +566,57 @@ async function copyLinkToClipboard(): Promise<void> {
   }
 }
 
-function exportModel(): void {
-  identifyEditor();
-  const url = URL.createObjectURL(new Blob([editor.value], { type: "application/json" }));
+/** Saves text as a file the browser downloads. */
+function downloadText(fileName: string, text: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = EXPORT_FILE_NAME;
+  link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function exportModel(): void {
+  identifyEditor();
+  downloadText(EXPORT_FILE_NAME, editor.value, "application/json");
+}
+
+/** The buttons that take the rows of a result away: as a CSV or JSON file, or as the matrix of a GitHub Actions job on the clipboard. `stem` names the downloaded files. */
+function exportButtons(rows: readonly Row[], stem: string): HTMLElement {
+  const names = dimensionNames();
+  const values = rows.map((row) => row.values);
+  const status = textElement("p", "");
+  status.setAttribute("role", "status");
+  const action = (label: string, run: () => Promise<void> | void): HTMLButtonElement => {
+    const control = textElement("button", label);
+    control.type = "button";
+    control.addEventListener("click", () => {
+      void Promise.resolve(run()).catch(() => {
+        status.textContent = "The browser would not let the page do that.";
+      });
+    });
+
+    return control;
+  };
+  const group = document.createElement("div");
+  group.className = "row";
+  group.append(
+    action("Download CSV", () => {
+      downloadText(`${stem}.csv`, toCsv(names, values), "text/csv");
+    }),
+    action("Download JSON", () => {
+      downloadText(`${stem}.json`, toJson(names, values), "application/json");
+    }),
+    action("Copy as a GitHub Actions matrix", async () => {
+      await navigator.clipboard.writeText(toActionsMatrix(names, values));
+      status.textContent = "Copied: use it as the `matrix` of a job, one run for each combination.";
+    }),
+  );
+  const wrapper = document.createElement("div");
+  wrapper.className = "export";
+  wrapper.append(group, status);
+
+  return wrapper;
 }
 
 async function importModel(): Promise<void> {

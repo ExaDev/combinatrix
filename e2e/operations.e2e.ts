@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { expect, test } from '@playwright/test';
 
 import type { JsonObject } from '../site/src/json';
@@ -92,6 +94,31 @@ test.describe('operations', () => {
 
     await expect(explorer.result('covering')).toContainText(`Checked with isCoveringArray against all ${String(RULE_EXAMPLE_SIZE)} combinations: it covers`, { timeout: RESULT_TIMEOUT_MS });
     await expect(explorer.result('covering')).toContainText(`${String(PAIRWISE_ROWS)} rows cover every combination of 2 dimension values`);
+  });
+
+  test('takes the covering array away as CSV, as JSON and as a GitHub Actions matrix, each with the rows the table shows', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const explorer = await Explorer.open(page);
+    await explorer.run('covering');
+    await expect(explorer.result('covering')).toContainText('rows cover every combination', { timeout: RESULT_TIMEOUT_MS });
+
+    const csvDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download CSV' }).click();
+    const csv = await csvDownload;
+    const jsonDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download JSON' }).click();
+    const json = await jsonDownload;
+    await page.getByRole('button', { name: 'Copy as a GitHub Actions matrix' }).click();
+
+    expect(csv.suggestedFilename()).toBe('combinatrix-covering-array.csv');
+    expect(json.suggestedFilename()).toBe('combinatrix-covering-array.json');
+    const lines = (await readFile(await csv.path(), 'utf8')).trim().split('\r\n');
+    expect(lines[0]).toBe('os,arch,runtime');
+    expect(lines).toHaveLength(PAIRWISE_ROWS + 1);
+    const rows: unknown = JSON.parse(await readFile(await json.path(), 'utf8'));
+    expect(Array.isArray(rows) && rows.length).toBe(PAIRWISE_ROWS);
+    const matrix: unknown = JSON.parse(await page.evaluate(async () => navigator.clipboard.readText()));
+    expect(matrix).toEqual({ include: rows });
   });
 
   test('names the rule that excludes a combination, gives the index of one that is valid, and shows the combination at an index', async ({ page }) => {
