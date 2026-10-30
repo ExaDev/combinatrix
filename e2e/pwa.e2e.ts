@@ -131,6 +131,15 @@ test.describe('installable', () => {
     });
   });
 
+  test("passes the browser's own installability checks", async ({ page, context }) => {
+    await withSite(async (site) => {
+      await controlledPage(page, site);
+      const { installabilityErrors } = await (await context.newCDPSession(page)).send('Page.getInstallabilityErrors');
+
+      expect(installabilityErrors).toEqual([]);
+    });
+  });
+
   test('names the colour of an installed window for each colour scheme and has an icon for the home screen', async ({ page }) => {
     await withSite(async (site) => {
       await openAt(page, site);
