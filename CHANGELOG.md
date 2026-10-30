@@ -1,3 +1,43 @@
+## [2.1.0](https://github.com/ExaDev/combinatrix/compare/v2.0.3...v2.1.0) (2026-10-30)
+
+### Features
+
+* **model:** accept a $schema string in model data ([7c132e0](https://github.com/ExaDev/combinatrix/commit/7c132e02d302d00b1662a6688f09759a808bed98))
+* **site:** compare JSON values and put one back at a path that may be absent ([f07cc56](https://github.com/ExaDev/combinatrix/commit/f07cc566021182232c48248e3a6f7e04483523d4))
+* **site:** keep the address bar a link to the model being edited ([ecf3f8b](https://github.com/ExaDev/combinatrix/commit/ecf3f8b5ab4dbcaf51adc47e9746fa585e3dff2c))
+* **site:** make the explorer an installable offline app ([42b0e85](https://github.com/ExaDev/combinatrix/commit/42b0e857f774c18150a81c3a794e31ca8b1e5786))
+* **site:** tell the user when the explorer is ready to work offline ([0ee615e](https://github.com/ExaDev/combinatrix/commit/0ee615edc6849df2ec93e74d40001f04b8e018fa))
+* **site:** write the schema into every model and offer more varied examples ([7c0e191](https://github.com/ExaDev/combinatrix/commit/7c0e1914834df4871df8462a338f26b831fa19f2))
+
+### Bug Fixes
+
+* **site:** carry a value to another type only where it stays the same value ([9856705](https://github.com/ExaDev/combinatrix/commit/98567055d6b29d0cf8784c392bbbdb657a552506))
+* **site:** keep an edit made to a child while its item is in another kind ([e7e515f](https://github.com/ExaDev/combinatrix/commit/e7e515f1b9c97c5dd3efdf0f8c547d675c475746))
+* **site:** keep an item's value when its type is switched and switched back ([d35ed56](https://github.com/ExaDev/combinatrix/commit/d35ed56c6c93308bdc215705f47bf9607fea44f7))
+
+### Documentation
+
+* **site:** describe the browser tests and when CI runs them ([c00f0ed](https://github.com/ExaDev/combinatrix/commit/c00f0ed13d0c0b04c40180eac65503ec0cafd42f))
+
+### Tests
+
+* **site:** check that any chain of kind switches back to the start restores the node ([f6a6211](https://github.com/ExaDev/combinatrix/commit/f6a6211f5cfb1e4d6f6686b6f38afcfa8497e2cf))
+* **site:** check the browser finds the explorer installable ([cbf586e](https://github.com/ExaDev/combinatrix/commit/cbf586e0beb8050f786689de1a7e7856461fabf3))
+* **site:** derive the type switch tests' timeouts from their work ([7f9f841](https://github.com/ExaDev/combinatrix/commit/7f9f8415dd9e8ac21d4fa98316675116aab0c8a6))
+* **site:** drive the built explorer in a browser ([6fa9242](https://github.com/ExaDev/combinatrix/commit/6fa92428ffe3caafc69705685c2f276fc0678157))
+* **site:** serve the preview on an explicit address, and let the port be set ([3bce3e6](https://github.com/ExaDev/combinatrix/commit/3bce3e646ed589d9e309f2ca011853b8d79e591d))
+
+### Build System
+
+* **site:** add Playwright's test runner for browser tests of the explorer ([902e085](https://github.com/ExaDev/combinatrix/commit/902e0854f9bbb47d640bd9e551fb4908642db844))
+
+### Continuous Integration
+
+* **site:** build the site from full history and redeploy it after a release ([3e63bed](https://github.com/ExaDev/combinatrix/commit/3e63bed114246f9d352d8ca0df61ae54beb098bc))
+* **site:** keep the Browser job's history whole and build the site once ([7bc9261](https://github.com/ExaDev/combinatrix/commit/7bc9261dce78e0d5852cc52174ee2b9476242658))
+* **site:** run the browser tests as a job that always reports ([7fa8d6d](https://github.com/ExaDev/combinatrix/commit/7fa8d6de694cea362169bbb3da7b679b3e78098b))
+* **site:** run the browser tests when the workflow that defines them changes ([db3c5ad](https://github.com/ExaDev/combinatrix/commit/db3c5adae0a036ccad717fb214aa93e247f120ee))
+
 ## [2.0.3](https://github.com/ExaDev/combinatrix/compare/v2.0.2...v2.0.3) (2026-10-29)
 
 ### Features

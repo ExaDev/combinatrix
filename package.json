@@ -1,7 +1,7 @@
 {
   "name": "combinatrix",
   "description": "Lazily enumerates every valid combination of option dimensions: the solution set of a finite-domain constraint model, with declarative three-valued constraints written as trilean predicate trees, derived dimensions and conditional activity",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "dependencies": {
     "trilean": "1.13.0"
   },
