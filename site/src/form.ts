@@ -4,6 +4,7 @@ import type { Choice } from "./dom";
 import { button, h, labelled, select, textInput } from "./dom";
 import { withDetail } from "./identity";
 import type { Direction, Json, JsonObject } from "./json";
+import { describeRule } from "./prose";
 import type { DimensionKind, DimensionView, RuleForm, RuleScope, RuleView } from "./modelEdit";
 import {
   addDimension,
@@ -269,6 +270,7 @@ function ruleCard(ctx: TreeContext, spec: { readonly index: number; readonly cou
     "li",
     { class: "card" },
     h("div", { class: "card-head" }, h("h4", {}, `Rule ${String(index + 1)}`), cardButtons(host, { position: index, count, noun, listPath: [RULES], move: (model, direction) => moveRule(model, index, direction), remove: (model) => removeRule(model, index) })),
+    h("p", { class: "rule-summary", "data-summary": String(index) }, describeRule(view)),
     h("div", { class: "grid" }, labelled("Label (optional)", name), labelled("States", form)),
     ...stated,
     scope("when", view.when, { heading: "Applies only when", add: "Apply only when a condition holds", remove: "Always apply" }),
@@ -303,6 +305,15 @@ export class ModelForm {
 
     target.focus();
     if (selection !== undefined && target instanceof HTMLInputElement && wanted === previous) target.setSelectionRange(selection.start, selection.end);
+  }
+
+  /** Rewrites the sentence of each rule card from the model, for an edit that does not draw the form again so that the field being typed in keeps its focus. */
+  refreshSummaries(model: JsonObject): void {
+    const rules = viewOfModel(model).rules ?? [];
+    for (const summary of this.#container.querySelectorAll<HTMLElement>("[data-summary]")) {
+      const rule = rules[Number(summary.dataset["summary"])];
+      if (rule?.kind === "rule") summary.textContent = describeRule(rule);
+    }
   }
 
   #draw(model: JsonObject): HTMLElement[] {

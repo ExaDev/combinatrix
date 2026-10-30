@@ -27,6 +27,7 @@ export class Harness {
       },
       editQuietly: (change) => {
         this.state = stateAfterEdit(this.state, change, "nothing");
+        this.form.refreshSummaries(this.state.model);
       },
       switchTo: (item: ItemSwitch, options?: SwitchOptions) => {
         this.state = stateAfterSwitch(this.state, item);

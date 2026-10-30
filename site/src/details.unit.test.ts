@@ -50,3 +50,16 @@ describe("the details of a model in the form", () => {
     expect(drawn({ dimensions: [] }).container.textContent).toContain("The model has no id yet");
   });
 });
+
+describe("the sentence on a rule card", () => {
+  it("says what the rule states, and follows an edit made while typing without drawing the form again", () => {
+    const form = drawn({ dimensions: [{ kind: "choice", name: "os", values: ["linux", "windows"] }], rules: [{ excludes: { kind: "textCompare", op: "equals", left: { kind: "reference", key: "os" }, right: { kind: "textLiteral", value: "windows" } } }] });
+    const sentence = (): string | null | undefined => form.container.querySelector("[data-summary='0']")?.textContent;
+
+    expect(sentence()).toBe('No combination may satisfy: os is "windows".');
+
+    form.type("rules.0.excludes.right.value:value", "linux");
+
+    expect(sentence()).toBe('No combination may satisfy: os is "linux".');
+  });
+});
