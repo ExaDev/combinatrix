@@ -170,10 +170,12 @@ interface Operation<Op extends Result["op"]> {
   /** Where its result, or why it failed, is written. */
   readonly output: HTMLElement;
   readonly show: (result: Extract<Result, { op: Op }>) => void;
+  /** Whether the page scrolls to the result once it is written: for an operation the person asked for, not one the page runs for them on opening a link. Defaults to `true`. */
+  readonly reveal?: boolean;
 }
 
 /** Runs one operation, writing what it produces or why it failed into its output. */
-async function operate<Op extends Result["op"]>({ op, label, request, output, show }: Readonly<Operation<Op>>): Promise<void> {
+async function operate<Op extends Result["op"]>({ op, label, request, output, show, reveal = true }: Readonly<Operation<Op>>): Promise<void> {
   setOperating(true, `${label}…`);
   output.replaceChildren();
   try {
@@ -182,6 +184,7 @@ async function operate<Op extends Result["op"]>({ op, label, request, output, sh
     else if (!response.ok) showFailure(output, response.failure);
     else if (isOp(response.result, op)) show(response.result);
     else throw new Error(`unreachable: ${op} was answered with ${response.result.op}`);
+    if (reveal) output.scrollIntoView({ block: "nearest" });
   } finally {
     setOperating(false, "");
   }
@@ -477,7 +480,7 @@ async function coveringOperation(): Promise<void> {
   });
 }
 
-async function atOperation(): Promise<void> {
+async function atOperation(reveal = true): Promise<void> {
   const output = byId("combination-result", HTMLDivElement);
   const index = integerOf(indexInput);
   if (index === undefined || index < 0) {
@@ -491,6 +494,7 @@ async function atOperation(): Promise<void> {
     label: "Finding the combination",
     request: { op: "at", model: editor.value, index },
     output,
+    reveal,
     show: ({ row }) => {
       if (row === undefined) {
         output.replaceChildren(textElement("p", `There is no combination at index ${String(index)}: the model has fewer combinations.`, "problem"));
@@ -803,7 +807,7 @@ async function openLink(restored: SharedState, text: string = restored.model): P
   if (restored.index !== undefined) indexInput.value = String(restored.index);
   opened = { href: window.location.href, state: stateOf(restored.model) };
   await validateEditor();
-  if (restored.index !== undefined) await atOperation();
+  if (restored.index !== undefined) await atOperation(false);
 }
 
 /** What loading the address did: it `loaded` a model, `held` one for the person to choose about, or found `none` to load. */
@@ -835,8 +839,19 @@ async function loadFromLocation(): Promise<Loaded> {
   }
 }
 
+/** Keeps `--run-panel-height` the height of the Run section, which the stylesheet pins it by. */
+function measureRunPanel(): void {
+  const panel = document.querySelector<HTMLElement>(".run-panel");
+  if (panel === null) throw new Error("the page has a Run section");
+
+  new ResizeObserver(() => {
+    panel.style.setProperty("--run-panel-height", `${String(panel.offsetHeight)}px`);
+  }).observe(panel);
+}
+
 function start(): void {
   fillHelp(document);
+  measureRunPanel();
   for (const [position, example] of EXAMPLES.entries()) exampleSelect.append(new Option(example.name, String(position)));
   listLimit.value = String(DEFAULT_LIST_LIMIT);
   listLimit.max = String(MAX_LIST_LIMIT);

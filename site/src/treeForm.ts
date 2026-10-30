@@ -270,7 +270,7 @@ function referenceKey(ctx: TreeContext, spec: NodeSpec, key: Json): HTMLElement 
       button({
         field: fieldId(spec.path, "not-text"),
         ariaLabel: childLabel(spec.label, "use a key that is not text"),
-        label: "Not a dimension",
+        label: "Other key",
         small: true,
         onClick: () => {
           switchNode(ctx.host, { path: [...spec.path, "key"], vocabulary: JSON_VOCABULARY, from: jsonTypeOf(key), to: "null", convert: (current) => convertJson(current, "null"), slots: noSlots, announce: "The key is no longer a dimension." });
