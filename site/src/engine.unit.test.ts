@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import { execute } from "./engine";
 import { EXAMPLES, exampleText } from "./examples";
 import { VERIFICATION_SOLUTION_SET_LIMIT } from "./limits";
@@ -8,6 +9,9 @@ import { isOp } from "./protocol";
 
 const [PRODUCT, RULE, CONDITIONAL] = EXAMPLES.map(exampleText);
 if (PRODUCT === undefined || RULE === undefined || CONDITIONAL === undefined) throw new Error("the examples are a product, a rule and a conditional model");
+
+/** The time the first request of the file may take, in milliseconds: it compiles the model's trees for the first time, and at least two hundred times what that takes on an idle machine, so a machine under heavy load still passes and only a request that stops terminating fails. */
+const FIRST_REQUEST_BUDGET_MS = 11_000;
 
 /** The solution sets the README states for the first two examples, and the rows it prints for the pairwise covering array of the second. */
 const PRODUCT_SIZE = 6;
@@ -45,7 +49,7 @@ function cube(dimensions: number, side: number): string {
 }
 
 describe("validate", () => {
-  it("summarises each dimension with its values, whether it is derived and whether it is conditional", () => {
+  it("summarises each dimension with its values, whether it is derived and whether it is conditional", budgetFor(1, FIRST_REQUEST_BUDGET_MS), () => {
     expect(resultOf("validate", { op: "validate", model: CONDITIONAL })).toEqual({
       op: "validate",
       dimensions: [
