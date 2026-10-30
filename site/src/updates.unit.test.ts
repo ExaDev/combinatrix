@@ -17,14 +17,17 @@ async function outcome(failure: Error | undefined): Promise<void> {
 
 /** The worker, the prompt and the page around the update logic, driven by hand: each records what the logic asks of it and exposes the events a browser or a user would cause. */
 function setup(failures: { readonly register?: Error; readonly check?: Error } = {}) {
-  const listeners = { waiting: [] as Listener[], controlling: [] as Listener[], update: [] as Listener[], dismiss: [] as Listener[], visible: [] as Listener[] };
-  const seen = { registrations: 0, checks: 0, activations: 0, reloads: 0, shown: false, reported: [] as unknown[] };
+  const listeners = { firstInstall: [] as Listener[], waiting: [] as Listener[], controlling: [] as Listener[], update: [] as Listener[], dismiss: [] as Listener[], visible: [] as Listener[] };
+  const seen = { offlineReady: 0, registrations: 0, checks: 0, activations: 0, reloads: 0, shown: false, reported: [] as unknown[] };
 
   watchForUpdates(
     {
       register: async () => {
         seen.registrations += 1;
         await outcome(failures.register);
+      },
+      onFirstInstall: (listener) => {
+        listeners.firstInstall.push(listener);
       },
       onWaiting: (listener) => {
         listeners.waiting.push(listener);
@@ -46,6 +49,9 @@ function setup(failures: { readonly register?: Error; readonly check?: Error } =
       },
       hide: () => {
         seen.shown = false;
+      },
+      offlineReady: () => {
+        seen.offlineReady += 1;
       },
       onUpdate: (listener) => {
         listeners.update.push(listener);
@@ -69,6 +75,9 @@ function setup(failures: { readonly register?: Error; readonly check?: Error } =
 
   return {
     seen,
+    installFirst: () => {
+      fire(listeners.firstInstall);
+    },
     installWaiting: () => {
       fire(listeners.waiting);
     },
@@ -98,6 +107,14 @@ describe("watchForUpdates", () => {
     const { seen } = setup();
 
     expect(seen.registrations).toBe(1);
+    expect(seen.shown).toBe(false);
+  });
+
+  it("tells the user the site is ready to work offline when the first worker has installed, and offers no update", () => {
+    const { seen, installFirst } = setup();
+    installFirst();
+
+    expect(seen.offlineReady).toBe(1);
     expect(seen.shown).toBe(false);
   });
 

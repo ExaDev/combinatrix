@@ -165,6 +165,19 @@ test.describe('the version link', () => {
 });
 
 test.describe('offline', () => {
+  test('says the site is ready to work offline once the first load has cached it, and not on later loads', async ({ page }) => {
+    await withSite(async (site) => {
+      await openAt(page, site);
+
+      await expect(page.locator('#offline-status')).toHaveText('Ready to work offline.', { timeout: RESULT_TIMEOUT_MS });
+
+      await page.reload();
+      await new Explorer(page).ready();
+
+      await expect(page.locator('#offline-status')).toHaveText('');
+    });
+  });
+
   test('opens, runs an operation and shows the engine with no network once it has been loaded', async ({ page }) => {
     await withSite(async (site) => {
       const explorer = await controlledPage(page, site);
