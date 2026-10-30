@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import { budgetFor } from "../../test/budget";
 import { decodeState, encodedStateOf, encodeState, SharedStateError, shareUrl } from "./fragment";
 import { MAX_DECODED_STATE_BYTES } from "./limits";
+
+/** The bytes in a mebibyte, and the time one mebibyte of state may take a test to build, compress, inflate and compare, in milliseconds: at least two hundred times what the slowest takes on an idle machine, so a machine under heavy load still passes and only a codec that stops terminating fails. */
+const BYTES_PER_MEBIBYTE = 1_048_576;
+const MEBIBYTE_BUDGET_MS = 11_000;
+
+/** The options of a test that handles the given number of characters of state. */
+function budgetOf(characters: number): { readonly timeout: number } {
+  return budgetFor(characters / BYTES_PER_MEBIBYTE, MEBIBYTE_BUDGET_MS);
+}
 
 /** The multiplier and increment of a linear congruential generator, so the large model is the same on every run. */
 const LCG_MULTIPLIER = 1_103_515_245;
@@ -59,7 +69,7 @@ describe("encodeState and decodeState", () => {
     expect((await decodeState(await encodeState({ model }))).model).toBe(model);
   });
 
-  it("round-trips a large model", async () => {
+  it("round-trips a large model", budgetOf(LARGE_MODEL_CHARACTERS), async () => {
     const model = bigModel(LARGE_DIMENSIONS);
     expect(model.length).toBeGreaterThan(LARGE_MODEL_CHARACTERS);
 
@@ -112,14 +122,14 @@ describe("decodeState refusals", () => {
     }));
   });
 
-  it("refuses data that inflates past the limit", async () => {
+  it("refuses data that inflates past the limit", budgetOf(MAX_DECODED_STATE_BYTES), async () => {
     const bomb = await encodeState({ model: " ".repeat(MAX_DECODED_STATE_BYTES) });
     expect(bomb.length).toBeLessThan(MAX_DECODED_STATE_BYTES / MINIMUM_BOMB_RATIO);
 
     expect(await outcomeOf(decodeState(bomb))).toContain("larger than");
   });
 
-  it("accepts data that inflates to exactly the limit", async () => {
+  it("accepts data that inflates to exactly the limit", budgetOf(MAX_DECODED_STATE_BYTES), async () => {
     const overhead = new TextEncoder().encode(JSON.stringify({ model: "" })).length;
     const model = " ".repeat(MAX_DECODED_STATE_BYTES - overhead);
 
