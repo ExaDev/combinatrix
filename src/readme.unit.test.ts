@@ -4,6 +4,8 @@ import { format, inspect } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { budgetFor } from "../test/budget";
+
 /**
  * The README's examples are the files in `examples/`. Each is shown verbatim in a fenced `ts` block of the README whose first line is the comment naming its file, and each shows what it prints in the bare block comments, with the opening and closing delimiters each on a line of their own, that follow the statements printing it. This suite runs every file, so an example that stops compiling or running fails here; compares each README block with its file byte for byte; compares the lines a file prints with the lines of those block comments; and derives the expected values of each example by plain loops, independently of the library.
  */
@@ -28,6 +30,11 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 };
 
 const FILES = Object.keys(LOADERS);
+
+/** The time one example may take a test, in milliseconds: at least two hundred times what the slowest takes on an idle machine, which is the first, since it loads the library, so a machine under heavy load still passes and only an example that stops terminating fails. */
+const EXAMPLE_BUDGET_MS = 26_000;
+/** The options of a test that runs one example. */
+const ONE_EXAMPLE = budgetFor(1, EXAMPLE_BUDGET_MS);
 
 /** The lines an example prints through `console.log` and `console.dir`, formatted as Node formats them, in the order printed. */
 async function printedBy(file: string): Promise<string[]> {
@@ -100,7 +107,7 @@ describe("the README's examples", () => {
     expect(`${readmeExamples().get(file) ?? ""}\n`).toBe(sourceOf(file));
   });
 
-  it.each(FILES)("prints what the block comments of %s say it prints", async (file) => {
+  it.each(FILES)("prints what the block comments of %s say it prints", ONE_EXAMPLE, async (file) => {
     expect(claimedBy(sourceOf(file))).toEqual(await printedOf(file));
   });
 });
@@ -110,14 +117,14 @@ const ARCH = ["x64", "arm64"] as const;
 const RUNTIME = [undefined, "node", "bun"] as const;
 
 describe("the combinations example", () => {
-  it("prints the size of the Cartesian product, then each combination with the first dimension varying slowest", async () => {
+  it("prints the size of the Cartesian product, then each combination with the first dimension varying slowest", ONE_EXAMPLE, async () => {
     const expected = OS.flatMap((os) => ARCH.map((arch) => format({ os, arch })));
     expect(await printedOf("01-combinations.ts")).toEqual([String(OS.length * ARCH.length), ...expected]);
   });
 });
 
 describe("the unset example", () => {
-  it("counts the product with unset as a value, and shows the key present with the value undefined", async () => {
+  it("counts the product with unset as a value, and shows the key present with the value undefined", ONE_EXAMPLE, async () => {
     expect(await printedOf("02-unset.ts")).toEqual([String(OS.length * ARCH.length * RUNTIME.length), format({ os: "linux", arch: "x64", runtime: undefined })]);
   });
 });
@@ -128,18 +135,18 @@ const REASON_KIND = /^ {6}kind: /gmu;
 describe("the rules example", () => {
   const survivors = OS.flatMap((os) => ARCH.flatMap((arch) => RUNTIME.filter((runtime) => !(runtime === "bun" && os === "windows")).map((runtime) => ({ os, arch, runtime }))));
 
-  it("counts the product less the combinations the rule excludes", async () => {
+  it("counts the product less the combinations the rule excludes", ONE_EXAMPLE, async () => {
     expect((await printedOf("03-rules.ts"))[0]).toBe(String(survivors.length));
   });
 
-  it("explains the excluded combination by naming the rule that excludes it, and no other reason", async () => {
+  it("explains the excluded combination by naming the rule that excludes it, and no other reason", ONE_EXAMPLE, async () => {
     const explanation = (await printedOf("03-rules.ts")).slice(1, -1).join("\n");
     expect(explanation).toContain("valid: false");
     expect(explanation).toContain("name: 'bun is not offered on windows'");
     expect(explanation.match(REASON_KIND)).toHaveLength(1);
   });
 
-  it("prints the condition as a trilean tree: the dimension exists and is a member of the one value", async () => {
+  it("prints the condition as a trilean tree: the dimension exists and is a member of the one value", ONE_EXAMPLE, async () => {
     const line = (await printedOf("03-rules.ts")).at(-1) ?? "";
     const reference = { kind: "reference", key: "os" };
     expect(JSON.parse(line)).toEqual({ kind: "and", left: { kind: "exists", operand: reference }, right: { kind: "memberOf", op: "in", operand: reference, candidates: [{ kind: "textLiteral", value: "windows" }] } });
@@ -147,7 +154,7 @@ describe("the rules example", () => {
 });
 
 describe("the derived example", () => {
-  it("lists a compressed combination once per operating system with the first codec the rule accepts, and an uncompressed one with no codec", async () => {
+  it("lists a compressed combination once per operating system with the first codec the rule accepts, and an uncompressed one with no codec", ONE_EXAMPLE, async () => {
     const codecs = ["zstd", "brotli", "gzip"] as const;
     const expected = (["linux", "windows"] as const).flatMap((os) =>
       ([undefined, true] as const).map((compress) => {
@@ -165,7 +172,7 @@ describe("the predicate example", () => {
   const TARGET = ["x64", "arm64", "riscv64"] as const;
   const accepted = BUILD.flatMap((buildArch) => TARGET.filter((targetArch) => buildArch === targetArch).map((targetArch) => ({ buildArch, targetArch })));
 
-  it("counts the pairs the function accepts and reports as dead the target no pair uses", async () => {
+  it("counts the pairs the function accepts and reports as dead the target no pair uses", ONE_EXAMPLE, async () => {
     const dead = TARGET.filter((targetArch) => !accepted.some((pair) => pair.targetArch === targetArch));
     expect(dead).toEqual(["riscv64"]);
     expect(await printedOf("05-predicate.ts")).toEqual([String(accepted.length), ...format({ status: "satisfiable", count: accepted.length, deadValues: dead.map((value) => ({ dimension: "targetArch", value })) }).split("\n")]);
@@ -186,13 +193,13 @@ describe("the advanced example", () => {
     }),
   );
 
-  it("counts the free choices times the channels the features leave open", async () => {
+  it("counts the free choices times the channels the features leave open", ONE_EXAMPLE, async () => {
     const modes = 2;
     const ratios = 3;
     expect((await printedOf("06-advanced.ts"))[0]).toBe(String(modes * ratios * solutions.length));
   });
 
-  it("explains a channel too weak for the interceptors by the derived channel and the rule", async () => {
+  it("explains a channel too weak for the interceptors by the derived channel and the rule", ONE_EXAMPLE, async () => {
     const explanation = (await printedOf("06-advanced.ts")).slice(1).join("\n");
     expect(explanation).toContain("expected: 'canary'");
     expect(explanation).toContain("name: 'interceptors need canary or dev'");
@@ -201,7 +208,7 @@ describe("the advanced example", () => {
 });
 
 describe("the limit example", () => {
-  it("counts the product when the limit equals its size, then refuses a collection one short of it, saying the limit", async () => {
+  it("counts the product when the limit equals its size, then refuses a collection one short of it, saying the limit", ONE_EXAMPLE, async () => {
     const size = OS.length * ARCH.length;
     expect(await printedOf("07-limit.ts")).toEqual([String(size), "solution-set", `the solution set has more than ${String(size - 1)} combinations`]);
   });
@@ -216,13 +223,13 @@ describe("the paging example", () => {
   /** The lines printed before the sample: the last combination, past the end, and two indices. */
   const BEFORE_SAMPLE = 4;
 
-  it("finds the last combination by index, nothing past it, the index of a combination and -1 for an excluded one", async () => {
+  it("finds the last combination by index, nothing past it, the index of a combination and -1 for an excluded one", ONE_EXAMPLE, async () => {
     const last = survivors.at(-1);
     const position = survivors.findIndex(({ os, arch, runtime }) => os === "macos" && arch === "x64" && runtime === "bun");
     expect((await printedOf("09-paging.ts")).slice(0, BEFORE_SAMPLE)).toEqual([format(last), "undefined", String(position), "-1"]);
   });
 
-  it("draws the combinations at the indices the seeded generator picks below the count", async () => {
+  it("draws the combinations at the indices the seeded generator picks below the count", ONE_EXAMPLE, async () => {
     let state = SEED;
     const drawn = Array.from({ length: SAMPLE_SIZE }, () => {
       state = (state * MULTIPLIER) % MODULUS;
@@ -236,20 +243,20 @@ describe("the paging example", () => {
 describe("the typed example", () => {
   const TARGET_OS = { linux: "linux", macos: "apple-darwin", windows: "windows" } as const;
 
-  it("computes each target from its os and arch, leaving out the excluded pair, and explains a wrong target by the derived one and the rule", async () => {
+  it("computes each target from its os and arch, leaving out the excluded pair, and explains a wrong target by the derived one and the rule", ONE_EXAMPLE, async () => {
     const targets = OS.flatMap((os) => ARCH.filter((arch) => !(os === "windows" && arch === "arm64")).map((arch) => `${arch}-${TARGET_OS[os]}`));
     expect(await printedOf("10-typed.ts")).toEqual([...format(targets).split("\n"), `arm64-${TARGET_OS.windows}`, "no arm64 on windows"]);
   });
 });
 
 describe("the cancellation example", () => {
-  it("catches the signal's own reason, and stops the search before it has visited every value", async () => {
+  it("catches the signal's own reason, and stops the search before it has visited every value", ONE_EXAMPLE, async () => {
     expect(await printedOf("08-cancellation.ts")).toEqual(["true", "true"]);
   });
 });
 
 describe("the JSON model example", () => {
-  it("lists the model's combinations with the first dimension slowest, the codec the first the rule accepts and unset only where `compress` is off, then the issue for the rule naming a dimension the model lacks", async () => {
+  it("lists the model's combinations with the first dimension slowest, the codec the first the rule accepts and unset only where `compress` is off, then the issue for the rule naming a dimension the model lacks", ONE_EXAMPLE, async () => {
     const codecs = ["zstd", "brotli"] as const;
     const expected = (["linux", "windows"] as const).flatMap((os) =>
       ([true, false] as const).map((compress) => {
@@ -278,7 +285,7 @@ describe("the covering array example", () => {
     return solution;
   }
 
-  it("prints the size of the solution set and of the array, then rows that are solutions, each once, and true", async () => {
+  it("prints the size of the solution set and of the array, then rows that are solutions, each once, and true", ONE_EXAMPLE, async () => {
     const lines = await printedOf("12-covering-array.ts");
     const rows = lines.slice(1, -1);
     expect(lines.at(-1)).toBe("true");
@@ -287,7 +294,7 @@ describe("the covering array example", () => {
     expect(rows.map(solutionShown)).toHaveLength(rows.length);
   });
 
-  it("covers every pair of values some solution contains, in fewer rows than the solution set", async () => {
+  it("covers every pair of values some solution contains, in fewer rows than the solution set", ONE_EXAMPLE, async () => {
     const rows = (await printedOf("12-covering-array.ts")).slice(1, -1);
     const covered = new Set(rows.map(solutionShown).flatMap(pairsOf));
     expect(solutions.flatMap(pairsOf).every((pair) => covered.has(pair))).toBe(true);
