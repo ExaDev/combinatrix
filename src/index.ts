@@ -11,6 +11,7 @@ export { collect, combinations, count, diagnose } from "./enumerate";
 export type { CancellationOptions, Combination, CombinationsOptions, DeadValue, Diagnosis, LimitOptions } from "./enumerate";
 export { CombinatrixError, ConstraintContractError, LimitExceededError, ModelError, StrategyError, UndecidedConstraintError, UnmappableValueError } from "./errors";
 export type { LimitBound } from "./errors";
+export { toActionsMatrix, toCsv, toJson } from "./export";
 export { explain, explainData } from "./explain";
 export type { DataExplanation, DataReason, ExactRecord, Explanation, Reason } from "./explain";
 export { isModelData, parseModel, parseRules } from "./guards";

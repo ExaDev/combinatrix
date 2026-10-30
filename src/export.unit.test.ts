@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ExportRow } from "./resultExport";
-import { toActionsMatrix, toCsv, toJson } from "./resultExport";
+import { toActionsMatrix, toCsv, toJson } from "./export";
+import type { ValueRecord } from "./value";
 
 const NAMES = ["os", "node", "debug"];
-const ROWS: readonly ExportRow[] = [
+const ROWS: readonly ValueRecord[] = [
   { os: "linux", node: 22, debug: true },
   { os: "windows", node: undefined, debug: false },
 ];

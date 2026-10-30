@@ -1,4 +1,5 @@
 import type { Value } from "combinatrix";
+import { toActionsMatrix, toCsv, toJson } from "combinatrix";
 
 import type { Opened } from "./address";
 import { ADDRESS_DEBOUNCE_MS, addressFor } from "./address";
@@ -26,7 +27,6 @@ import { startPwa } from "./pwa";
 import type { Clash } from "./reconcile";
 import { meet } from "./reconcile";
 import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
-import { toActionsMatrix, toCsv, toJson } from "./resultExport";
 import { GIST_PARAMETER, restoreFrom } from "./restore";
 import { SavedModels } from "./saved";
 
