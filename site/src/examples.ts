@@ -2,14 +2,17 @@ import { SCHEMA_URL } from "./schema";
 
 /** A model the page offers to load. */
 export interface Example {
+  /** What the menu calls the example, which is also the title of its model. */
   readonly name: string;
+  /** What the example shows, which is also the description of its model. */
+  readonly description: string;
   /** The model as JSON data, the form `parseModel` accepts, naming the schema it is written against. */
   readonly model: unknown;
 }
 
-/** An example whose model declares the schema it is written against, so an editor that opens an exported copy checks it. */
-function exampleOf(name: string, model: Readonly<Record<string, unknown>>): Example {
-  return { name, model: { $schema: SCHEMA_URL, ...model } };
+/** An example whose model declares the schema it is written against, so an editor that opens an exported copy checks it, and says what it is and what it shows in its title and description. It has no id: an id names one model across copies, and every copy of an example is the same example. */
+function exampleOf(name: string, description: string, model: Readonly<Record<string, unknown>>): Example {
+  return { name, description, model: { $schema: SCHEMA_URL, title: name, description, ...model } };
 }
 
 /** The Node.js majors the examples that have a version dimension take, oldest to newest. */
@@ -79,16 +82,22 @@ function setAndIs(key: string, value: string): unknown {
 }
 
 /**
- * The models the page offers, each showing a different part of what a model can state. The first three are the library README's, in the README's order, and the rest are ordered from the nearest to the furthest from them: rules that imply, numbers, values no rule leaves possible, membership and negation, an exception, a fallback, settings that exist only in a chain, and a space large enough for a covering array.
+ * The models the page offers, each showing a different part of what a model can state. The first three are the library README's, in the README's order, and the rest are ordered from the nearest to the furthest from them: rules that imply, numbers, values no rule leaves possible, dead values that tidying removes, membership and negation, an exception, a fallback, settings that exist only in a chain, and a space large enough for a covering array.
  */
 export const EXAMPLES: readonly Example[] = [
-  exampleOf("Operating systems and architectures", {
+  exampleOf(
+    "Operating systems and architectures",
+    "Two dimensions and no rules, so every operating system is valid with every architecture: the valid combinations are the whole product.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["linux", "macos", "windows"] },
       { kind: "choice", name: "arch", values: ["x64", "arm64"] },
     ],
   }),
-  exampleOf("A rule: bun is not offered on Windows", {
+  exampleOf(
+    "A rule: bun is not offered on Windows",
+    "A rule removes combinations from the product. This one excludes Windows whenever the runtime is bun, so only some of the combinations are valid.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["linux", "macos", "windows"] },
       { kind: "choice", name: "arch", values: ["x64", "arm64"] },
@@ -96,7 +105,10 @@ export const EXAMPLES: readonly Example[] = [
     ],
     rules: [{ name: "bun is not offered on windows", excludes: textIs("equals", "os", "windows"), when: textIs("equals", "runtime", "bun") }],
   }),
-  exampleOf("A conditional, derived dimension", {
+  exampleOf(
+    "A conditional, derived dimension",
+    "A codec that exists only while compression is on, derived as the first candidate no rule rejects. A rule rejects zstd on Windows, so the codec falls back to brotli there.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["linux", "windows"] },
       { kind: "choice", name: "compress", values: [true, false] },
@@ -104,7 +116,10 @@ export const EXAMPLES: readonly Example[] = [
     ],
     rules: [{ name: "windows has no zstd", excludes: setAndIs("codec", "zstd"), when: textIs("equals", "os", "windows") }],
   }),
-  exampleOf("Features that need other features", {
+  exampleOf(
+    "Features that need other features",
+    "Rules that say one setting needs another: http2 needs tls, http3 needs http2, and brotli is offered only over tls. A combination cannot enable a feature without what it relies on.",
+    {
     dimensions: [
       { kind: "choice", name: "tls", values: [true, false] },
       { kind: "choice", name: "http2", values: [true, false] },
@@ -117,7 +132,10 @@ export const EXAMPLES: readonly Example[] = [
       { name: "brotli is only offered over tls", requires: flagIs("tls", true), when: textIs("equals", "compression", "brotli") },
     ],
   }),
-  exampleOf("Numbers: a version floor", {
+  exampleOf(
+    "Numbers: a version floor",
+    "Values that are numbers, compared with a number. Windows on arm64 needs Node 22 or later, so the oldest version is ruled out there.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["linux", "macos", "windows"] },
       { kind: "choice", name: "arch", values: ["x64", "arm64"] },
@@ -125,7 +143,10 @@ export const EXAMPLES: readonly Example[] = [
     ],
     rules: [{ name: "windows on arm64 needs node 22 or later", requires: numIs("gte", "node", MIDDLE_NODE), when: allOf(textIs("equals", "os", "windows"), textIs("equals", "arch", "arm64")) }],
   }),
-  exampleOf("Values no rule leaves possible", {
+  exampleOf(
+    "Values no rule leaves possible",
+    "A rule can make a value dead, one that appears in no valid combination. Enterprise needs SSO and SSO is not shipped yet, so neither can occur: Find dead values lists them.",
+    {
     dimensions: [
       { kind: "choice", name: "plan", values: ["free", "pro", "enterprise"] },
       { kind: "choice", name: "sso", values: [false, true] },
@@ -136,7 +157,26 @@ export const EXAMPLES: readonly Example[] = [
       { name: "sso is not shipped yet", excludes: flagIs("sso", true) },
     ],
   }),
-  exampleOf("A CI matrix: membership, any-of and not", {
+  exampleOf(
+    "Dead values that tidying the model removes",
+    'Find dead values lists plan = "legacy" and region = "apac": a rule rules each out, so no combination uses them. Delete those two values and the two rules that only excluded them and the model has exactly the same valid combinations, written more simply.',
+    {
+      dimensions: [
+        { kind: "choice", name: "plan", values: ["free", "pro", "legacy"] },
+        { kind: "choice", name: "region", values: ["us", "eu", "apac"] },
+        { kind: "choice", name: "support", values: ["community", "priority"] },
+      ],
+      rules: [
+        { name: "the legacy plan is retired", excludes: textIs("equals", "plan", "legacy") },
+        { name: "there is no capacity in apac", excludes: textIs("equals", "region", "apac") },
+        { name: "priority support needs a paid plan", excludes: textIs("equals", "support", "priority"), when: textIs("equals", "plan", "free") },
+      ],
+    },
+  ),
+  exampleOf(
+    "A CI matrix: membership, any-of and not",
+    "Conditions can test membership in a list, combine alternatives and negate. WebKit runs only on macOS or Ubuntu, and Windows runs only the newest Node.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["ubuntu", "macos", "windows"] },
       { kind: "choice", name: "node", values: [OLDEST_NODE, MIDDLE_NODE, NEWEST_NODE] },
@@ -147,7 +187,10 @@ export const EXAMPLES: readonly Example[] = [
       { name: "windows runs only the newest node", excludes: anyOf(numIs("eq", "node", OLDEST_NODE), numIs("eq", "node", MIDDLE_NODE)), when: not(textIn("notIn", "os", ["windows"])) },
     ],
   }),
-  exampleOf("A rule with an exception", {
+  exampleOf(
+    "A rule with an exception",
+    "A rule can carry an exception. The debug flag is excluded in production, and debug logging is excluded unless the deployment is dev.",
+    {
     dimensions: [
       { kind: "choice", name: "deploy", values: ["dev", "staging", "prod"] },
       { kind: "choice", name: "debug", values: [true, false] },
@@ -158,7 +201,10 @@ export const EXAMPLES: readonly Example[] = [
       { name: "debug logging is for development only", excludes: textIs("equals", "logLevel", "debug"), unless: textIs("equals", "deploy", "dev") },
     ],
   }),
-  exampleOf("A derived dimension that falls back", {
+  exampleOf(
+    "A derived dimension that falls back",
+    "A provider derived as the first candidate no rule rejects: aws, then gcp, then azure. A rule that rejects one candidate for a region or tier sends that combination to the next.",
+    {
     dimensions: [
       { kind: "choice", name: "region", values: ["eu", "us"] },
       { kind: "choice", name: "tier", values: ["standard", "premium"] },
@@ -170,14 +216,20 @@ export const EXAMPLES: readonly Example[] = [
       { name: "gcp has no eu region", excludes: textIs("equals", "provider", "gcp"), when: textIs("equals", "region", "eu") },
     ],
   }),
-  exampleOf("Settings that exist only in a chain", {
+  exampleOf(
+    "Settings that exist only in a chain",
+    "A setting that exists only while another is set: a certificate only with TLS, and an ACME challenge only with an ACME certificate. When its condition does not hold a setting is unset and adds no combinations.",
+    {
     dimensions: [
       { kind: "choice", name: "tls", values: [true, false] },
       { kind: "choice", name: "certificate", values: ["self-signed", "acme"], activeWhen: flagIs("tls", true) },
       { kind: "choice", name: "challenge", values: ["http-01", "dns-01"], activeWhen: setAndIs("certificate", "acme") },
     ],
   }),
-  exampleOf("A larger space for covering arrays", {
+  exampleOf(
+    "A larger space for covering arrays",
+    "Five dimensions of three values and one rule: too many combinations to read through, where a covering array tests every pair of values in far fewer rows.",
+    {
     dimensions: [
       { kind: "choice", name: "os", values: ["linux", "macos", "windows"] },
       { kind: "choice", name: "node", values: [OLDEST_NODE, MIDDLE_NODE, NEWEST_NODE] },

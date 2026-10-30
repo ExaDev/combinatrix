@@ -26,6 +26,13 @@ const WINDOWS_WITH_OLD_NODE = (NODE_VERSIONS - 1) * BROWSERS;
 const WEBKIT_ON_WINDOWS_WITH_OLD_NODE = NODE_VERSIONS - 1;
 const FREE_AND_PRO = 2;
 const AUDIT_SETTINGS = 2;
+
+/** The example whose dead values tidying removes: the regions and plans that survive, the support levels on a paid plan, and the one on the free plan. */
+/** The most combinations the comparison lists, more than any example has. */
+const LIST_LIMIT = 1000;
+const LIVE_REGIONS = 2;
+const SUPPORT_LEVELS = 2;
+const SUPPORT_ON_FREE = 1;
 const CONDITIONAL_COMBINATIONS = 4;
 const CHAIN_COMBINATIONS = 4;
 const DEBUG_FLAGS = 2;
@@ -49,6 +56,8 @@ const EXPECTED: ReadonlyMap<string, number> = new Map([
   ["Numbers: a version floor", OPERATING_SYSTEMS * ARCHITECTURES * NODE_VERSIONS - WINDOWS_ARM64_NODE_20],
   // sso is never on, so enterprise has no combination; free and pro have either audit setting.
   ["Values no rule leaves possible", FREE_AND_PRO * AUDIT_SETTINGS],
+  // free has one support level and pro has both, in each of the two regions that have capacity; legacy and apac are dead.
+  ["Dead values that tidying the model removes", (SUPPORT_ON_FREE + SUPPORT_LEVELS) * LIVE_REGIONS],
   // Webkit on windows, and windows with the two older nodes, share webkit on windows with those nodes.
   ["A CI matrix: membership, any-of and not", OPERATING_SYSTEMS * NODE_VERSIONS * BROWSERS - (NODE_VERSIONS + WINDOWS_WITH_OLD_NODE - WEBKIT_ON_WINDOWS_WITH_OLD_NODE)],
   // dev has every debug flag and log level; staging every flag and the quiet levels; prod no debug flag and the quiet levels.
@@ -75,6 +84,9 @@ function textOf(name: string): string {
   return exampleText(example);
 }
 
+/** The keys every example starts with: the schema it is written against, then its title and description. */
+const LEADING_KEYS = ["$schema", "title", "description"];
+
 describe("EXAMPLES", () => {
   it("has one expected count for each, under a name no other has", () => {
     expect(new Set(EXAMPLES.map((example) => example.name)).size).toBe(EXAMPLES.length);
@@ -100,6 +112,19 @@ describe("EXAMPLES", () => {
     for (const example of EXAMPLES) expect(exampleText(example).startsWith(`{\n  "$schema": ${JSON.stringify(SCHEMA_URL)},\n`), example.name).toBe(true);
   });
 
+  it("titles each model with its name and describes it, with a description no other example has, and gives it no id", () => {
+    for (const example of EXAMPLES) {
+      const model = JSON.parse(exampleText(example)) as Record<string, unknown>;
+
+      expect(model["title"], example.name).toBe(example.name);
+      expect(model["description"], example.name).toBe(example.description);
+      expect(example.description.trim(), example.name).not.toBe("");
+      expect(model, example.name).not.toHaveProperty("id");
+      expect(Object.keys(model).slice(0, LEADING_KEYS.length), example.name).toEqual(LEADING_KEYS);
+    }
+    expect(new Set(EXAMPLES.map((example) => example.description)).size).toBe(EXAMPLES.length);
+  });
+
   it("covers every kind of dimension, every rule form and both rule scopes between them", () => {
     const all = EXAMPLES.map(exampleText).join("\n");
 
@@ -120,6 +145,32 @@ describe("EXAMPLES", () => {
         { dimension: "sso", value: true },
       ],
     });
+  });
+
+  it("has dead values that deleting them and the rules that only excluded them leaves the valid combinations unchanged by", () => {
+    const text = textOf("Dead values that tidying the model removes");
+    const result = succeed({ op: "diagnose", model: text });
+    if (!isOp(result, "diagnose")) throw new Error("expected a diagnosis");
+
+    expect(result.diagnosis).toMatchObject({ status: "satisfiable", deadValues: [{ dimension: "plan", value: "legacy" }, { dimension: "region", value: "apac" }] });
+
+    const model = JSON.parse(text) as { dimensions: { name: string; values: string[] }[]; rules: { name: string }[] };
+    const tidied = {
+      ...model,
+      dimensions: model.dimensions.map((dimension) => ({ ...dimension, values: dimension.values.filter((value) => value !== "legacy" && value !== "apac") })),
+      rules: model.rules.filter((rule) => rule.name === "priority support needs a paid plan"),
+    };
+    const rowsOf = (source: string): unknown => {
+      const listed = succeed({ op: "list", model: source, limit: LIST_LIMIT });
+      if (!isOp(listed, "list")) throw new Error("expected a list");
+
+      return listed.rows.map((row) => row.values);
+    };
+
+    expect(rowsOf(JSON.stringify(tidied))).toEqual(rowsOf(text));
+    const afterwards = succeed({ op: "diagnose", model: JSON.stringify(tidied) });
+    if (!isOp(afterwards, "diagnose")) throw new Error("expected a diagnosis");
+    expect(afterwards.diagnosis).toMatchObject({ status: "satisfiable", deadValues: [] });
   });
 
   it("derives the first provider no rule rejects for each region and tier", () => {
