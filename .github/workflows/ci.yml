@@ -87,8 +87,6 @@ jobs:
       - run: pnpm typecheck
       # Before the tests, so the one that compares the built schema with what the generator derives in process has a file to compare.
       - run: pnpm build
-      # The explorer in site/ is built from the library's source, so a change to the library that breaks it fails here, before the Pages workflow would deploy it.
-      - run: pnpm site:build
       - run: pnpm test
       - run: pnpm exec publint
       - run: pnpm exec attw --pack --profile esm-only
@@ -284,7 +282,7 @@ jobs:
           # The site is built from git: its footer names the release or commit it came from, and the version a commit will release as is read from the history since the last release tag, so the build needs every commit and tag.
           fetch-depth: 0
           persist-credentials: false
-      # The files the site, its tests, the library it is built from and this workflow live in. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them.
+      # The files the site, its tests, the library it is built from, the release rules its version label is predicted from and this workflow live in. This job is also what builds the site on a pull request, so a change to any of them that breaks the build fails here, before the Pages workflow would deploy it. A dispatch always runs. The base is the pull request's base or the commit a push replaces; one that cannot be fetched (a force-pushed branch, a first push) runs the tests, since not knowing is no reason to skip them. The fetch takes the commit whole and never a depth of one: a shallow boundary would make the history incomplete again, and the build reads it.
       - name: Decide whether the browser tests are needed
         id: changes
         env:
@@ -297,14 +295,14 @@ jobs:
             echo "The browser tests run: there is no base to compare with."
             exit 0
           fi
-          if ! git fetch --no-tags --depth=1 "https://github.com/${REPOSITORY}.git" "$BASE_SHA"; then
+          if ! git fetch --no-tags "https://github.com/${REPOSITORY}.git" "$BASE_SHA"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "The browser tests run: the base commit could not be fetched."
             exit 0
           fi
-          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(site/|src/|e2e/|playwright\.config\.ts$|package\.json$|pnpm-lock\.yaml$|\.github/workflows/ci\.yml$)'; then
+          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(site/|src/|e2e/|playwright\.config\.ts$|package\.json$|pnpm-lock\.yaml$|release\.config\.ts$|\.github/workflows/ci\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
-            echo "The browser tests run: the site, the library, the tests or the dependencies changed."
+            echo "The browser tests run: the site, the library, the release rules, the tests or the dependencies changed."
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             echo "The browser tests are skipped: nothing they depend on changed."
