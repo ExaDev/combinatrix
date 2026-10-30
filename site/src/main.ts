@@ -14,18 +14,24 @@ import type { EditOptions, SwitchOptions } from "./controls";
 import { byId } from "./dom";
 import { ModelForm } from "./form";
 import { fillHelp } from "./help";
+import { asCopy, idOf, identify, modelOfText, nameOf } from "./identity";
 import type { JsonObject } from "./json";
 import { DEFAULT_LIST_LIMIT, DEFAULT_STRENGTH, MAX_LIST_LIMIT } from "./limits";
 import type { DimensionSummary, Failure, Request, Response, Result, Row, Verification } from "./protocol";
 import { isOp } from "./protocol";
 import { describeFailure, describeReason, describeValue } from "./reasons";
 import { startPwa } from "./pwa";
+import type { Clash } from "./reconcile";
+import { meet } from "./reconcile";
 import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
 import { restoreFrom } from "./restore";
 import { SavedModels } from "./saved";
 
 /** How long after the last keystroke the editor's text is checked, so typing does not start a check per key. */
 const VALIDATE_DEBOUNCE_MS = 250;
+
+/** How many characters of an id tell two saved models of the same name apart. */
+const SHORT_ID_LENGTH = 8;
 
 /** The file Export writes. */
 const EXPORT_FILE_NAME = "combinatrix-model.json";
@@ -52,6 +58,12 @@ const saveButton = byId("save", HTMLButtonElement);
 const savedStatus = byId("saved-status", HTMLParagraphElement);
 const savedList = byId("saved-list", HTMLUListElement);
 const notice = byId("notice", HTMLParagraphElement);
+const clashPanel = byId("clash", HTMLElement);
+const clashSummary = byId("clash-summary", HTMLParagraphElement);
+const clashChanges = byId("clash-changes", HTMLUListElement);
+const clashKeep = byId("clash-keep", HTMLButtonElement);
+const clashReplace = byId("clash-replace", HTMLButtonElement);
+const clashCopy = byId("clash-copy", HTMLButtonElement);
 const cancelButton = byId("cancel", HTMLButtonElement);
 const busy = byId("busy", HTMLParagraphElement);
 const listLimit = byId("list-limit", HTMLInputElement);
@@ -86,7 +98,10 @@ const spawnWorker: SpawnWorker = (handlers) => {
 };
 
 const client = new EngineClient(spawnWorker);
-const saved = new SavedModels(() => window.localStorage);
+/** A new durable id for a model. */
+const mint = (): string => crypto.randomUUID();
+
+const saved = new SavedModels(() => window.localStorage, mint);
 
 /** The model the form shows and the JSON text in the Advanced view: edits to either change both. */
 let state: EditorState = emptyState();
@@ -486,11 +501,16 @@ function selectedIndex(): number | undefined {
   return index !== undefined && index >= 0 ? index : undefined;
 }
 
-/** What a link to the page as it is now holds: the editor's text and the selected index. */
-function sharedState(): SharedState {
+/** What a link to a model holds, with the index selected now. */
+function stateOf(model: string): SharedState {
   const index = selectedIndex();
 
-  return index === undefined ? { model: editor.value } : { model: editor.value, index };
+  return index === undefined ? { model } : { model, index };
+}
+
+/** What a link to the page as it is now holds: the editor's text and the selected index. */
+function sharedState(): SharedState {
+  return stateOf(editor.value);
 }
 
 /** The address bar follows the page: it holds a link to the model and index shown, so copying it from the browser is the same as Copy link. */
@@ -516,7 +536,18 @@ function markOpened(): void {
   opened = { href: window.location.href, state: sharedState() };
 }
 
+/** Gives the model in the editor an id if it has none, so what leaves the page (a saved model, a link, a file) names the model. Returns the id, or `undefined` when the editor holds no model the form can show, which has none to give. */
+function identifyEditor(): string | undefined {
+  if (state.problem !== undefined) return undefined;
+
+  const identified = identify(state.model, mint);
+  if (identified.model !== state.model) edit(() => identified.model, { reshapes: "nothing" });
+
+  return identified.id;
+}
+
 async function copyLinkToClipboard(): Promise<void> {
+  identifyEditor();
   const link = await shareUrl(window.location.href, sharedState());
   linkField.value = link;
   linkField.hidden = false;
@@ -530,6 +561,7 @@ async function copyLinkToClipboard(): Promise<void> {
 }
 
 function exportModel(): void {
+  identifyEditor();
   const url = URL.createObjectURL(new Blob([editor.value], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
@@ -544,24 +576,31 @@ async function importModel(): Promise<void> {
   importInput.value = "";
   if (file === undefined) return;
 
-  setModel(await file.text());
+  receive(await file.text());
+}
+
+/** What the saved list shows for a model: its name, and the start of its id when another saved model has the same name. */
+function savedLabel(entry: { readonly id: string; readonly name: string }, all: readonly { readonly name: string }[]): string {
+  return all.filter((other) => other.name === entry.name).length > 1 ? `${entry.name} (${entry.id.slice(0, SHORT_ID_LENGTH)})` : entry.name;
 }
 
 function renderSaved(): void {
-  const items = saved.list().map(({ name, model }) => {
+  const all = saved.list();
+  const items = all.map((entry) => {
+    const label = savedLabel(entry, all);
     const open = textElement("button", "Open");
     open.type = "button";
-    open.setAttribute("aria-label", `Open ${name}`);
-    open.addEventListener("click", () => { setModel(model); });
+    open.setAttribute("aria-label", `Open ${label}`);
+    open.addEventListener("click", () => { receive(entry.model); });
     const remove = textElement("button", "Delete");
     remove.type = "button";
-    remove.setAttribute("aria-label", `Delete ${name}`);
+    remove.setAttribute("aria-label", `Delete ${label}`);
     remove.addEventListener("click", () => {
-      savedStatus.textContent = saved.remove(name) ? `Deleted ${name}.` : "The browser would not let the page change its storage.";
+      savedStatus.textContent = saved.remove(entry.id) ? `Deleted ${label}.` : "The browser would not let the page change its storage.";
       renderSaved();
     });
     const item = document.createElement("li");
-    item.append(textElement("span", name, "name"), open, remove);
+    item.append(textElement("span", label, "name"), open, remove);
 
     return item;
   });
@@ -570,39 +609,148 @@ function renderSaved(): void {
 }
 
 function saveModel(): void {
-  const name = saveName.value.trim();
-  if (name === "") {
-    savedStatus.textContent = "Give the model a name to save it under.";
+  const id = identifyEditor();
+  if (id === undefined) {
+    savedStatus.textContent = "Fix the JSON before saving: only a model the form can show is saved.";
 
     return;
   }
 
-  savedStatus.textContent = saved.save(name, editor.value) ? `Saved ${name}.` : "The browser is not letting this page save: its storage is unavailable.";
+  const name = [saveName.value.trim(), nameOf(state.model, ""), saved.find(id)?.name ?? ""].find((candidate) => candidate !== "") ?? "";
+  if (name === "") {
+    savedStatus.textContent = "Give the model a name, or a title, to save it under.";
+
+    return;
+  }
+
+  savedStatus.textContent = saved.save({ id, name, model: editor.value }) ? `Saved ${name}.` : "The browser is not letting this page save: its storage is unavailable.";
   renderSaved();
+}
+
+// A model arriving with the id of one already here
+
+/** The model that has arrived and is held until the person chooses what becomes of it, with the copy it clashes with and the link it came from, if it came from the address. */
+interface Held {
+  readonly theirs: string;
+  readonly clash: Clash;
+  readonly link: SharedState | undefined;
+}
+
+let held: Held | undefined;
+
+/** Offers a model that has arrived (from a file or the saved list) to the editor: it replaces the model there unless it clashes with a copy that has its id. */
+function receive(text: string): void {
+  const clash = meet(text, editor.value, (id) => saved.find(id)?.model);
+  if (clash === undefined) setModel(text);
+  else hold({ theirs: text, clash, link: undefined });
+}
+
+/** Shows what differs between the copy here and the one that arrived, and the three things that can become of them. Nothing changes until one is chosen. */
+function hold(next: Held): void {
+  held = next;
+  const id = idOf(modelOfText(next.theirs)) ?? "";
+  clashSummary.textContent = `A model with the id ${id} is already ${next.clash.source === "editor" ? "open in the editor" : "saved"}, and the one arriving differs from it. An id says they are the same model, not which is newer, so choose what becomes of them.`;
+  clashChanges.replaceChildren(...next.clash.changes.map((change) => textElement("li", change)));
+  clashPanel.hidden = false;
+  clashKeep.focus();
+}
+
+function release(): Held | undefined {
+  const current = held;
+  held = undefined;
+  clashPanel.hidden = true;
+
+  return current;
+}
+
+/** Keep mine: the arriving model is dropped. A link it came in is taken off the address bar, and a saved copy that was the one compared is opened. */
+function keepMine(): void {
+  const current = release();
+  if (current === undefined) return;
+
+  if (current.clash.source === "saved") setModel(current.clash.mine);
+  if (current.link === undefined) return;
+
+  const clean = new URL(window.location.href);
+  clean.search = "";
+  clean.hash = "";
+  window.history.replaceState(window.history.state, "", clean.href);
+  opened = { href: clean.href, state: sharedState() };
+}
+
+/** Replace with theirs: mine is saved first as a copy under an id of its own, so that it is never lost, then the arriving model is opened. */
+async function replaceWithTheirs(): Promise<void> {
+  const current = held;
+  if (current === undefined) return;
+
+  const mine = modelOfText(current.clash.mine);
+  if (mine === undefined) throw new Error("unreachable: the copy that was compared is a model");
+
+  const copy = asCopy(mine, mint);
+  const name = `${nameOf(mine, "Untitled model")} (replaced)`;
+  if (!saved.save({ id: copy.id, name, model: JSON.stringify(copy.model, null, 2) })) {
+    savedStatus.textContent = "The browser is not letting this page save, so the model here cannot be kept and has not been replaced.";
+
+    return;
+  }
+
+  renderSaved();
+  savedStatus.textContent = `Kept the model that was here as ${name}.`;
+  release();
+  if (current.link === undefined) setModel(current.theirs);
+  else await openLink(current.link);
+}
+
+/** Save theirs as a copy: the arriving model is opened under an id of its own, and the copy here is left as it is. */
+async function saveTheirsAsCopy(): Promise<void> {
+  const current = release();
+  if (current === undefined) return;
+
+  const theirs = modelOfText(current.theirs);
+  if (theirs === undefined) throw new Error("unreachable: the arriving model was compared as a model");
+
+  const copy = JSON.stringify(asCopy(theirs, mint).model, null, 2);
+  if (current.link === undefined) setModel(copy);
+  else await openLink(current.link, copy);
 }
 
 // Starting
 
-async function loadFromLocation(): Promise<boolean> {
+/** Opens the model a link holds, or `text` in its place, as the page the link opened. The address bar keeps the link while the page shows its model, and follows the page as soon as it shows anything else. */
+async function openLink(restored: SharedState, text: string = restored.model): Promise<void> {
+  setModel(text);
+  if (restored.index !== undefined) indexInput.value = String(restored.index);
+  opened = { href: window.location.href, state: stateOf(restored.model) };
+  await validateEditor();
+  if (restored.index !== undefined) await atOperation();
+}
+
+/** What loading the address did: it `loaded` a model, `held` one for the person to choose about, or found `none` to load. */
+type Loaded = "loaded" | "held" | "none";
+
+async function loadFromLocation(): Promise<Loaded> {
   try {
     const restored = await restoreFrom(window.location, async (url, init) => fetch(url, init));
-    if (restored === undefined) return false;
+    if (restored === undefined) return "none";
 
     notice.hidden = true;
-    setModel(restored.model);
-    if (restored.index !== undefined) indexInput.value = String(restored.index);
-    markOpened();
-    await validateEditor();
-    if (restored.index !== undefined) await atOperation();
+    const clash = meet(restored.model, editor.value, (id) => saved.find(id)?.model);
+    if (clash !== undefined) {
+      hold({ theirs: restored.model, clash, link: restored });
 
-    return true;
+      return "held";
+    }
+
+    await openLink(restored);
+
+    return "loaded";
   } catch (error) {
     if (!(error instanceof Error)) throw error;
 
     notice.textContent = `This link could not be loaded: ${error.message}.`;
     notice.hidden = false;
 
-    return false;
+    return "none";
   }
 }
 
@@ -642,12 +790,16 @@ function start(): void {
   indexInput.addEventListener("input", addressChanged);
   window.addEventListener("hashchange", () => void loadFromLocation());
 
+  if (!saved.migrate()) savedStatus.textContent = "The browser would not let the page move the models you saved earlier. They are still stored.";
   renderSaved();
-  void loadFromLocation().then((restored) => {
-    if (restored) return;
+  clashKeep.addEventListener("click", keepMine);
+  clashReplace.addEventListener("click", () => void replaceWithTheirs());
+  clashCopy.addEventListener("click", () => void saveTheirsAsCopy());
+  void loadFromLocation().then((loaded) => {
+    if (loaded === "loaded") return;
 
     setModel(exampleText(STARTING_EXAMPLE));
-    markOpened();
+    if (loaded === "none") markOpened();
   });
 }
 

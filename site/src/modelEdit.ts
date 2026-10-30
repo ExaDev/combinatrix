@@ -1,6 +1,7 @@
 import type { ModelData, Scalar } from "combinatrix";
 
 import { keysOf, unreachable } from "./exhaustive";
+import { detailOf } from "./identity";
 import type { Direction, Json, JsonObject, JsonStep, JsonType } from "./json";
 import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, moveEntry, omit, removeAt, removeEntry, renameEntry, setIn, updateIn } from "./json";
 import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
@@ -17,7 +18,7 @@ import type { Slots } from "./typeMemory";
 export type DimensionKind = ModelData["dimensions"][number]["kind"];
 
 /** The top-level keys the library's model data defines, one entry for each so that a key it gains is a compile error here. */
-const MODEL_KEYS: readonly string[] = keysOf<keyof ModelData>({ $schema: true, dimensions: true, rules: true });
+const MODEL_KEYS: readonly string[] = keysOf<keyof ModelData>({ $schema: true, id: true, title: true, description: true, dimensions: true, rules: true });
 
 export const DIMENSION_KIND_LABELS: Readonly<Record<DimensionKind, string>> = {
   choice: "free choice",
@@ -64,7 +65,15 @@ export interface RuleView {
   readonly unless: Json | undefined;
 }
 
+/** The details a model carries beside its definition, as text; empty when it has none. */
+export interface DetailsView {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+}
+
 export interface ModelView {
+  readonly details: DetailsView;
   readonly dimensions: readonly (DimensionView | RawView)[];
   /** `undefined` when the model has no `rules` key. */
   readonly rules: readonly (RuleView | RawView)[] | undefined;
@@ -139,6 +148,7 @@ export function viewOfModel(model: JsonObject): ModelView {
   if (dimensions === undefined || !isJsonArray(dimensions) || (rules !== undefined && !isJsonArray(rules))) throw new Error("unreachable: the model was accepted by displayProblem");
 
   return {
+    details: { id: detailOf(model, "id") ?? "", title: detailOf(model, "title") ?? "", description: detailOf(model, "description") ?? "" },
     dimensions: dimensions.map(classifyDimension),
     rules: rules?.map(classifyRule),
     otherKeys: Object.keys(model).filter((key) => !MODEL_KEYS.includes(key)),

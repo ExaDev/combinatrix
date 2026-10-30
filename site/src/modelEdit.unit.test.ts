@@ -72,6 +72,21 @@ describe("viewOfModel", () => {
     expect(viewOfModel({ $schema: "https://example.com/combinatrix.schema.json", dimensions: [] }).otherKeys).toEqual([]);
   });
 
+  it("shows the details a model carries, and does not list them among the keys it does not show", () => {
+    const view = viewOfModel({ id: "foo", title: "Builds", description: "Where it builds.", dimensions: [] });
+
+    expect(view.details).toEqual({ id: "foo", title: "Builds", description: "Where it builds." });
+    expect(view.otherKeys).toEqual([]);
+  });
+
+  it("shows no details as empty text", () => {
+    expect(viewOfModel({ dimensions: [] }).details).toEqual({ id: "", title: "", description: "" });
+  });
+
+  it("shows a shape of the wrong type as no detail, since the form cannot edit it", () => {
+    expect(viewOfModel({ title: 3, dimensions: [] }).details.title).toBe("");
+  });
+
   it("shows a dimension of a kind the library does not take as data as raw", () => {
     const computed: Json = { kind: "computed", name: "target", reads: ["os"] };
 

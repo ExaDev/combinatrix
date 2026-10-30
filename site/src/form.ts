@@ -2,6 +2,7 @@ import type { Scalar } from "combinatrix";
 
 import type { Choice } from "./dom";
 import { button, h, labelled, select, textInput } from "./dom";
+import { withDetail } from "./identity";
 import type { Direction, Json, JsonObject } from "./json";
 import type { DimensionKind, DimensionView, RuleForm, RuleScope, RuleView } from "./modelEdit";
 import {
@@ -319,7 +320,20 @@ export class ModelForm {
         },
       });
 
+    const detail = (key: "title" | "description", label: string): HTMLElement =>
+      labelled(label, textInput({ field: fieldId([key], "text"), ariaLabel: label, value: view.details[key], onInput: (text) => { this.#host.editQuietly((current) => withDetail(current, key, text)); } }));
+
     return [
+      h(
+        "section",
+        { class: "form-section", "aria-labelledby": "about-heading" },
+        h("h3", { id: "about-heading" }, "About this model"),
+        h("p", { class: "hint" }, "A title and a description are for people and have no effect on the model."),
+        h("div", { class: "grid" }, detail("title", "Title (optional)"), detail("description", "Description (optional)")),
+        view.details.id === ""
+          ? h("p", { class: "hint" }, "The model has no id yet. It gets one when you save it, copy its link or export it: an id names the model across copies and edits, so a saved model and a copy of it that comes back can be told apart from an unrelated one.")
+          : h("p", { class: "hint" }, "Id: ", h("code", {}, view.details.id), ". It names this model across copies and edits."),
+      ),
       h("section", { class: "form-section", "aria-labelledby": "dimensions-heading" }, h("h3", { id: "dimensions-heading" }, "Dimensions"), h("p", { class: "hint" }, "A dimension is one option and the values it can take. Their order is the order of enumeration: the first varies slowest."), dimensions.length === 0 ? h("p", { class: "muted" }, "No dimensions yet.") : h("ol", { class: "cards" }, ...dimensions), add(DIMENSIONS, "Add a dimension", (current) => addDimension(current), "Added a dimension.")),
       h("section", { class: "form-section", "aria-labelledby": "rules-heading" }, h("h3", { id: "rules-heading" }, "Rules"), h("p", { class: "hint" }, "A rule restricts which combinations are valid, as a condition over the dimensions."), rules.length === 0 ? h("p", { class: "muted" }, "No rules.") : h("ol", { class: "cards" }, ...rules), add(RULES, "Add a rule", (current) => addRule(current), "Added a rule.")),
       view.otherKeys.length === 0 ? undefined : h("p", { class: "hint" }, `The model also has ${view.otherKeys.map((key) => `"${key}"`).join(", ")}, which the form does not show and keeps.`),
