@@ -64,6 +64,24 @@ async function controlledPage(page: Page, site: StaticSite): Promise<Explorer> {
   return explorer;
 }
 
+/** The longest a read of one service worker may take, in milliseconds. A worker that is being replaced can leave a call into it pending for good, so the read is given up and the poll that asked for it asks again, rather than waiting on a worker that will never answer. */
+const WORKER_READ_TIMEOUT_MS = 1000;
+
+/** The promise's result, or a rejection if it has not settled within `ms`. */
+async function within<T>(ms: number, promise: Readonly<Promise<T>>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`no answer within ${String(ms)} ms`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** What a service worker reports from inside itself: the build its script was served with and its lifecycle state. */
 interface WorkerReport {
   readonly build: unknown;
@@ -74,13 +92,16 @@ interface WorkerReport {
 async function activeBuild(context: BrowserContext): Promise<unknown> {
   const reports = await Promise.allSettled(
     context.serviceWorkers().map(async (worker): Promise<WorkerReport> =>
-      worker.evaluate(() => {
-        const serviceWorker: unknown = Reflect.get(self, 'serviceWorker');
-        const state: unknown = typeof serviceWorker === 'object' && serviceWorker !== null && 'state' in serviceWorker ? serviceWorker.state : undefined;
-        const build: unknown = Reflect.get(self, '__build');
+      within(
+        WORKER_READ_TIMEOUT_MS,
+        worker.evaluate(() => {
+          const serviceWorker: unknown = Reflect.get(self, 'serviceWorker');
+          const state: unknown = typeof serviceWorker === 'object' && serviceWorker !== null && 'state' in serviceWorker ? serviceWorker.state : undefined;
+          const build: unknown = Reflect.get(self, '__build');
 
-        return { build, state };
-      }),
+          return { build, state };
+        }),
+      ),
     ),
   );
   const active = reports.flatMap((report) => (report.status === 'fulfilled' && report.value.state === 'activated' ? [report.value.build] : []));
