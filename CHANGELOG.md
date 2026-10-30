@@ -1,3 +1,31 @@
+## [2.3.0](https://github.com/ExaDev/combinatrix/compare/v2.2.0...v2.3.0) (2026-10-30)
+
+### Features
+
+* **cli:** add a combinatrix command that answers questions about a model file ([f0c4c56](https://github.com/ExaDev/combinatrix/commit/f0c4c568b645d8d00d8c27217fa66c6e56c1f44d))
+* **export:** write combinations as JSON, CSV or a GitHub Actions matrix ([2fcabcc](https://github.com/ExaDev/combinatrix/commit/2fcabcc82c8bae7359417e8199d9154b4636a08b))
+* **site:** download a result as CSV or JSON, or copy it as a GitHub Actions matrix ([e52cbcd](https://github.com/ExaDev/combinatrix/commit/e52cbcd935ff346f1da24ad73ae214537145ca78))
+* **site:** install a waiting update when the page is hidden and a reload changes nothing ([1ba6a34](https://github.com/ExaDev/combinatrix/commit/1ba6a34fd43e23909cd5bb1731818c09e604538b))
+* **site:** show the Run section beside the model in a wide window ([93292f2](https://github.com/ExaDev/combinatrix/commit/93292f2b720c63982c3c4959b8c5e76450d1c855))
+* **site:** state each rule as a sentence on its card ([851f177](https://github.com/ExaDev/combinatrix/commit/851f177acde1ae94cbc6173378e699e7700b603c))
+* **site:** undo and redo changes to the model ([08f3ffa](https://github.com/ExaDev/combinatrix/commit/08f3ffaf6ecb2542e8bc6a38f75d71f721bbe779))
+
+### Tests
+
+* **site:** bound reads of a service worker being replaced ([0e7a9b4](https://github.com/ExaDev/combinatrix/commit/0e7a9b438e2e4004cb321487cad2691dbc6787b4))
+* **site:** derive the round-trip tests' timeouts from the cases they generate ([386570e](https://github.com/ExaDev/combinatrix/commit/386570e6ff6add9ad9322e05c2d78d2f58e31201))
+* **site:** derive the widget tests' timeouts from the nodes they draw ([c9c62b6](https://github.com/ExaDev/combinatrix/commit/c9c62b63954834c1d0fe024c904b82a31371b33b))
+* **suite:** derive the fragment and engine tests' timeouts from their work ([d53e784](https://github.com/ExaDev/combinatrix/commit/d53e784bbefd2b4b7420c62298c523a66d7759aa))
+* **suite:** derive the README examples' timeouts from the examples they run ([e5b902c](https://github.com/ExaDev/combinatrix/commit/e5b902c38427c2140b170879244df4de401761ce))
+
+### Continuous Integration
+
+* **workflows:** run every job on GitHub-hosted runners ([be29f34](https://github.com/ExaDev/combinatrix/commit/be29f3485543d8abedb8b23cbe5ed15e3a85d803))
+
+### Chores
+
+* **workflows:** do not release a change to the test suite alone ([07c2c97](https://github.com/ExaDev/combinatrix/commit/07c2c97d7b1ca9d361784057b35f0254dd1f59c2))
+
 ## [2.2.0](https://github.com/ExaDev/combinatrix/compare/v2.1.0...v2.2.0) (2026-10-30)
 
 ### Features
