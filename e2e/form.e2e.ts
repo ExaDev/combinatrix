@@ -107,6 +107,16 @@ test.describe('building a model with the form', () => {
     await expect(explorer.field('rules.0:name')).toHaveValue('bun is not offered on windows');
   });
 
+  test('states each rule as a sentence, which follows an edit of the rule as it is typed', async ({ page }) => {
+    const explorer = await Explorer.open(page);
+    const sentence = page.locator('[data-summary="0"]');
+
+    await expect(sentence).toHaveText('No combination may satisfy: os is "windows", when runtime is "bun".');
+    await explorer.field('rules.0.when.right.value:value').fill('deno');
+
+    await expect(sentence).toHaveText('No combination may satisfy: os is "windows", when runtime is "deno".');
+  });
+
   test('builds a model from nothing with only the form, and the JSON view and the engine agree with it', async ({ page }) => {
     const explorer = await Explorer.open(page);
     await explorer.id('empty-model').click();

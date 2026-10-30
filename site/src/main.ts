@@ -254,6 +254,7 @@ function showState(next: EditorState, update: Update): void {
     advanced.open = true;
   }
   if (update.draw) form.render(next.model, update.focus);
+  else if (next.problem === undefined) form.refreshSummaries(next.model);
   if (update.announce !== undefined) formStatus.textContent = update.announce;
   editorChanged();
 }

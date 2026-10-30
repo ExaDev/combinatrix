@@ -610,3 +610,9 @@ fieldset legend {
 .page-footer p {
   margin: 0;
 }
+
+.rule-summary {
+  margin: 4px 0 12px;
+  color: var(--muted);
+  font-style: italic;
+}
