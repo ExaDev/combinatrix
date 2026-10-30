@@ -37,6 +37,8 @@ function fitsDimensions<T extends Readonly<Record<string, Value>>>(rule: Rule, b
  * The data form of a model: what a JSON file holds and the JSON Schema describes. Its dimensions are choice or first-valid dimensions over literal values, and a dimension is unset only through `activeWhen`, since JSON has no `undefined`. Computed dimensions, `sampled` domains and constraints given through the constraint contract are functions and are not data.
  */
 export interface ModelData {
+  /** The URI of the JSON Schema the model is written against, which an editor reads to check the file. It has no effect on the model. */
+  readonly $schema?: string;
   /** The dimensions, in enumeration order: the first varies slowest. */
   readonly dimensions: readonly (ChoiceDimension<string, Scalar> | FirstValidDimension<string, Scalar>)[];
   /** Declarative constraints over the dimensions. */
@@ -44,11 +46,15 @@ export interface ModelData {
 }
 
 /**
- * Every way a value fails to be well-formed model data, which is exactly the shape the published JSON Schema states for a model: a definition with only `dimensions` and `rules`; choice and first-valid dimensions only, each with a non-empty name and a non-empty list of distinct JSON scalars (never `undefined`, which JSON cannot carry); well-formed conditions and rules. Names, values and references that depend on the whole model are not shape and are checked by `defineModel`, which `parseModel` calls.
+ * Every way a value fails to be well-formed model data, which is exactly the shape the published JSON Schema states for a model: a definition with only `dimensions` and `rules`, and optionally a `$schema` string naming the JSON Schema it is written against; choice and first-valid dimensions only, each with a non-empty name and a non-empty list of distinct JSON scalars (never `undefined`, which JSON cannot carry); well-formed conditions and rules. Names, values and references that depend on the whole model are not shape and are checked by `defineModel`, which `parseModel` calls.
  */
 function modelDataIssues(data: unknown): string[] {
-  const issues = modelShapeIssues(data);
-  if (!isRecord(data)) return issues;
+  if (!isRecord(data)) return modelShapeIssues(data);
+
+  // `$schema` belongs to the file, not to the definition `defineModel` takes, so the definition's own check never sees it.
+  const { $schema: declared, ...definition } = data;
+  const issues = modelShapeIssues(definition);
+  if (Object.hasOwn(data, "$schema") && typeof declared !== "string") issues.push('the model data has a "$schema" that is not a string');
 
   if (Object.hasOwn(data, "constraints")) issues.push("the model data has constraints, which are functions and not data");
   const { dimensions } = data;

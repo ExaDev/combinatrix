@@ -2,6 +2,7 @@ import { ExpressionNodeSchema, JsonValueSchema, PredicateNodeSchema } from "tril
 import { z } from "zod";
 
 import pkg from "../package.json";
+import { schemaId } from "./schema-id";
 
 /**
  * The Zod definitions of the library's serialisable data, from which `buildJsonSchema` derives the published JSON Schema. A condition is trilean's `PredicateNodeSchema` itself, so the schema states trilean trees exactly as trilean does. Zod is otherwise a development dependency used only for that derivation (trilean depends on it at runtime): the package validates at runtime with the guards in `src/guards.ts` and `src/shape.ts`, and `scripts/json-schema.unit.test.ts` proves the two accept and refuse the same data. `scripts/json-schema.types.unit.test.ts` proves at compile time that what each schema infers and the library type it describes accept the same data.
@@ -81,6 +82,7 @@ export const FirstValidDimensionSchema = z
 /** The data form of a model: dimensions with literal domains, and rules. */
 export const ModelSchema = z
   .strictObject({
+    $schema: z.string().optional().describe("The URI of the JSON Schema the model is written against, which an editor reads to check the file. It has no effect on the model."),
     dimensions: z.array(z.union([ChoiceDimensionSchema, FirstValidDimensionSchema])).describe("The dimensions, in enumeration order: the first varies slowest."),
     rules: RulesSchema.optional().describe("Declarative constraints over the dimensions."),
   })
@@ -95,11 +97,11 @@ const DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 const ROOT_DESCRIPTION =
   "The serialisable data of combinatrix: a model (choice and first-valid dimensions with literal values, activity conditions and rules), a list of rules, a single rule, or a single condition, which is a trilean predicate tree. Computed dimensions, sampled domains, predicates and other constraints given through the constraint contract are functions, not data, and are out of scope. A value that is unset is not a JSON value: a dimension is unset only through `activeWhen`.";
 
-/** The published JSON Schema document, a draft 2020-12 schema whose `$id` names the package version it ships in. The `$id` is version-pinned, never `latest`, so a reference to it keeps meaning the schema it was written against. */
+/** The published JSON Schema document, a draft 2020-12 schema whose `$id` names the package version it ships in. */
 export function buildJsonSchema(version: string): z.core.JSONSchema.JSONSchema {
   const root = z.union([ModelSchema, RulesSchema, RuleSchema, ConditionSchema]).meta({ title: "combinatrix", description: ROOT_DESCRIPTION });
 
-  return { $schema: DRAFT_2020_12, $id: `https://cdn.jsdelivr.net/npm/combinatrix@${version}/schemas/combinatrix.schema.json`, ...z.toJSONSchema(root, { target: "draft-2020-12" }) };
+  return { $schema: DRAFT_2020_12, $id: schemaId(version), ...z.toJSONSchema(root, { target: "draft-2020-12" }) };
 }
 
 /** The version of the package this schema ships in. */
