@@ -68,6 +68,10 @@ describe("viewOfModel", () => {
     expect(view.otherKeys).toEqual(["note"]);
   });
 
+  it("does not list the schema a model names among the keys it does not show", () => {
+    expect(viewOfModel({ $schema: "https://example.com/combinatrix.schema.json", dimensions: [] }).otherKeys).toEqual([]);
+  });
+
   it("shows a dimension of a kind the library does not take as data as raw", () => {
     const computed: Json = { kind: "computed", name: "target", reads: ["os"] };
 
@@ -116,7 +120,7 @@ describe("dimensions", () => {
   });
 
   it("adds a first-valid dimension with its candidates under the right key", () => {
-    expect(addDimension(EMPTY_MODEL, "first-valid")).toEqual({ dimensions: [{ kind: "first-valid", name: "dimension", candidates: ["value"] }] });
+    expect(addDimension(EMPTY_MODEL, "first-valid")).toEqual({ ...EMPTY_MODEL, dimensions: [{ kind: "first-valid", name: "dimension", candidates: ["value"] }] });
   });
 
   it("removes and moves a dimension", () => {

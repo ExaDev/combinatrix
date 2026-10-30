@@ -6,7 +6,7 @@ import type { SpawnWorker } from "./client";
 import { CancelledError, EngineClient } from "./client";
 import type { EditorState, ItemSwitch } from "./editorState";
 import { emptyState, stateAfterEdit, stateAfterSwitch, stateFromModel, stateFromText } from "./editorState";
-import { EXAMPLES, exampleText } from "./examples";
+import { EXAMPLES, exampleText, STARTING_EXAMPLE } from "./examples";
 import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
@@ -26,9 +26,6 @@ import { SavedModels } from "./saved";
 
 /** How long after the last keystroke the editor's text is checked, so typing does not start a check per key. */
 const VALIDATE_DEBOUNCE_MS = 250;
-
-/** The example the editor starts with when the location asks for nothing else: the one that shows a rule. */
-const STARTING_EXAMPLE = 1;
 
 /** The file Export writes. */
 const EXPORT_FILE_NAME = "combinatrix-model.json";
@@ -649,10 +646,7 @@ function start(): void {
   void loadFromLocation().then((restored) => {
     if (restored) return;
 
-    const example = EXAMPLES[STARTING_EXAMPLE];
-    if (example === undefined) throw new Error("unreachable: the starting example is one of the examples");
-
-    setModel(exampleText(example));
+    setModel(exampleText(STARTING_EXAMPLE));
     markOpened();
   });
 }

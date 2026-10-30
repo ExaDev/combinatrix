@@ -6,6 +6,7 @@ import { addEntry, arrayAt, getIn, insertAt, isJsonArray, isJsonObject, moveAt, 
 import type { FoldCombiner, PredicateKind, RawView } from "./nodes";
 import { classifyExpression, classifyPredicate, createPredicate } from "./nodes";
 import { convertScalar, isScalar } from "./scalars";
+import { SCHEMA_URL } from "./schema";
 import type { Slots } from "./typeMemory";
 
 /**
@@ -14,6 +15,9 @@ import type { Slots } from "./typeMemory";
 
 /** The kinds of dimension the model's data form has: read from the library's `ModelData`, so a kind it gains is a compile error wherever a kind is listed below. */
 export type DimensionKind = ModelData["dimensions"][number]["kind"];
+
+/** The top-level keys the library's model data defines, one entry for each so that a key it gains is a compile error here. */
+const MODEL_KEYS: readonly string[] = keysOf<keyof ModelData>({ $schema: true, dimensions: true, rules: true });
 
 export const DIMENSION_KIND_LABELS: Readonly<Record<DimensionKind, string>> = {
   choice: "free choice",
@@ -64,7 +68,7 @@ export interface ModelView {
   readonly dimensions: readonly (DimensionView | RawView)[];
   /** `undefined` when the model has no `rules` key. */
   readonly rules: readonly (RuleView | RawView)[] | undefined;
-  /** The top-level keys the form does not show, kept as they are. */
+  /** The top-level keys the library's model data does not define, which the form does not show and keeps as they are. */
   readonly otherKeys: readonly string[];
 }
 
@@ -137,7 +141,7 @@ export function viewOfModel(model: JsonObject): ModelView {
   return {
     dimensions: dimensions.map(classifyDimension),
     rules: rules?.map(classifyRule),
-    otherKeys: Object.keys(model).filter((key) => key !== "dimensions" && key !== "rules"),
+    otherKeys: Object.keys(model).filter((key) => !MODEL_KEYS.includes(key)),
   };
 }
 
@@ -509,4 +513,4 @@ export function newPredicate(model: JsonObject, kind: PredicateKind): Json {
 }
 
 /** The model that a new editor starts from. */
-export const EMPTY_MODEL: JsonObject = { dimensions: [] };
+export const EMPTY_MODEL: JsonObject = { $schema: SCHEMA_URL, dimensions: [] };

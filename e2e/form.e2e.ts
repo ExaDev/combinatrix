@@ -5,10 +5,12 @@ import { EXAMPLES, exampleText } from '../site/src/examples';
 import type { Json, JsonObject } from '../site/src/json';
 import { getIn, isJsonArray, isJsonObject } from '../site/src/json';
 import { EXPRESSION_KINDS, PREDICATE_KINDS } from '../site/src/nodes';
+import { SCHEMA_URL } from '../site/src/schema';
 import { Explorer, inOrder, reference, RESULT_TIMEOUT_MS, textEquals, textLiteral, trackExternalRequests } from './explorer';
 
-/** The model the first test builds by hand, written as the form writes it. The rule excludes a combination on Windows or macOS that is not arm64. */
+/** The model the first test builds by hand, written as the form writes it, naming the schema it is written against. The rule excludes a combination on Windows or macOS that is not arm64. */
 const BUILT_BY_HAND: JsonObject = {
+  $schema: SCHEMA_URL,
   dimensions: [
     { kind: 'choice', name: 'os', values: ['linux', 'macos', 'windows'] },
     { kind: 'choice', name: 'arch', values: ['x64', 'arm64'] },
@@ -246,6 +248,8 @@ test.describe('the form and the JSON view are one model', () => {
       await expect(explorer.cards('dimensions')).toHaveCount(dimensions.length);
       await expect(explorer.cards('rules')).toHaveCount(rules.length);
       await expect(explorer.page.locator('textarea.raw-json')).toHaveCount(0);
+      // The schema a model names is part of the model, not a key the form leaves unshown.
+      await expect(explorer.page.getByText('which the form does not show and keeps')).toHaveCount(0);
       await inOrder(
         dimensions.map((dimension, index) => ({ dimension, index })),
         async ({ dimension, index }) => {
