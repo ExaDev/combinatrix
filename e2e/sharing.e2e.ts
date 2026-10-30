@@ -86,8 +86,8 @@ test.describe('share links', () => {
     await explorer.field('dimensions.2.values:add').click();
     await explorer.field('dimensions.2.values.3:value').fill('wasmtime');
     await explorer.ready();
-    const model = await explorer.json();
     const link = await copiedLink(explorer);
+    const model = await explorer.json();
 
     expect(link.startsWith(`${String(baseURL)}#s=`)).toBe(true);
     expect(await page.evaluate(async () => navigator.clipboard.readText())).toBe(link);
@@ -179,12 +179,13 @@ test.describe('the address bar', () => {
     await explorer.ready();
     await explorer.setNumber('index', SHARED_INDEX);
     await expect.poll(async () => decodedIndexOf(await hashOf(page)), { timeout: RESULT_TIMEOUT_MS }).toBe(SHARED_INDEX);
-    const model = await explorer.json();
-    const link = page.url();
     await explorer.id('copy-link').click();
     await expect(explorer.id('link-status')).toContainText('Link copied', { timeout: RESULT_TIMEOUT_MS });
+    const link = await explorer.id('link').inputValue();
+    // Copy link gives the model an id, which the address bar then follows.
+    await expect.poll(() => page.url(), { timeout: RESULT_TIMEOUT_MS }).toBe(link);
+    const model = await explorer.json();
 
-    expect(await explorer.id('link').inputValue()).toBe(link);
     await page.reload();
     await explorer.ready();
     expect(await explorer.json()).toEqual(model);
@@ -276,10 +277,10 @@ test.describe('saved models, import and export', () => {
   test('saves a model by name, opens it again after changing the model and after a reload, and deletes it', async ({ page }) => {
     const explorer = await Explorer.open(page);
     await explorer.loadExample(STARTING_EXAMPLE);
-    const saved = await explorer.json();
     await explorer.id('save-name').fill('my rule model');
     await explorer.id('save').click();
     await expect(explorer.id('saved-status')).toContainText('Saved my rule model.');
+    const saved = await explorer.json();
     await explorer.loadExample('Operating systems and architectures');
 
     expect(await explorer.json()).not.toEqual(saved);
@@ -298,10 +299,10 @@ test.describe('saved models, import and export', () => {
   test('exports the editor text as a file, and imports a file into the form', async ({ page }) => {
     const explorer = await Explorer.open(page);
     await explorer.loadExample('A conditional, derived dimension');
-    const text = await (await explorer.advanced()).inputValue();
     const download = page.waitForEvent('download');
     await explorer.id('export').click();
     const file = await download;
+    const text = await (await explorer.advanced()).inputValue();
     const folder = await mkdtemp(join(tmpdir(), 'combinatrix-e2e-'));
     const exported = join(folder, 'exported.json');
     await file.saveAs(exported);
