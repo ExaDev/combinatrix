@@ -6,6 +6,9 @@ import { Explorer } from './explorer';
 const WIDE = { width: 1400, height: 2400 };
 const NARROW = { width: 700, height: 900 };
 
+/** The narrowest window the page is held to fit: a small phone. A menu that is as wide as its longest option made the page wider than this one. */
+const SMALLEST = { width: 320, height: 700 };
+
 /** How far the page is scrolled for the Run section to be shown held away from its place beside the heading: past its top, and less than the model column is tall. */
 const SCROLLED_PAST_THE_TOP = 1500;
 
@@ -72,5 +75,16 @@ test.describe('scrolling', () => {
     const box = await explorer.result('count').boundingBox();
     expect(box === null ? Number.NaN : box.y).toBeLessThan(NARROW.height);
     expect(box === null ? Number.NaN : box.y).toBeGreaterThanOrEqual(0);
+  });
+});
+
+test.describe('width', () => {
+  test('has nothing wider than the window at the narrowest width, with the longest example name in its menu', async ({ page }) => {
+    await page.setViewportSize(SMALLEST);
+    const explorer = await Explorer.open(page);
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const longest = await explorer.id('example').evaluate((select) => (select instanceof HTMLSelectElement ? [...select.options].map((option) => option.text.length).reduce((most, length) => Math.max(most, length), 0) : 0));
+    expect(longest).toBeGreaterThan(0);
   });
 });
