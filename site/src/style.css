@@ -553,3 +553,32 @@ fieldset legend {
   margin: 4px 0 8px;
   font-size: 0.9rem;
 }
+
+.update-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px var(--gutter);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.update-prompt[hidden] {
+  display: none;
+}
+
+.update-prompt p {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.page-footer {
+  padding: 16px var(--gutter);
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.page-footer p {
+  margin: 0;
+}

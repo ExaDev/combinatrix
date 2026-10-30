@@ -11,6 +11,7 @@ import { unreachable } from "./exhaustive";
 import type { SharedState } from "./fragment";
 import { shareUrl } from "./fragment";
 import type { EditOptions, SwitchOptions } from "./controls";
+import { byId } from "./dom";
 import { ModelForm } from "./form";
 import { fillHelp } from "./help";
 import type { JsonObject } from "./json";
@@ -18,6 +19,7 @@ import { DEFAULT_LIST_LIMIT, DEFAULT_STRENGTH, MAX_LIST_LIMIT } from "./limits";
 import type { DimensionSummary, Failure, Request, Response, Result, Row, Verification } from "./protocol";
 import { isOp } from "./protocol";
 import { describeFailure, describeReason, describeValue } from "./reasons";
+import { startPwa } from "./pwa";
 import { combinationsPhrase, messageList, rowsTable, textElement } from "./render";
 import { restoreFrom } from "./restore";
 import { SavedModels } from "./saved";
@@ -30,13 +32,6 @@ const STARTING_EXAMPLE = 1;
 
 /** The file Export writes. */
 const EXPORT_FILE_NAME = "combinatrix-model.json";
-
-function byId<T extends HTMLElement>(id: string, type: new () => T): T {
-  const found = document.getElementById(id);
-  if (!(found instanceof type)) throw new Error(`#${id} is not a ${type.name}`);
-
-  return found;
-}
 
 const editor = byId("model", HTMLTextAreaElement);
 const validation = byId("validation", HTMLDivElement);
@@ -663,3 +658,4 @@ function start(): void {
 }
 
 start();
+startPwa();

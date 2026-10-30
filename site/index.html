@@ -5,11 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Combinatrix Explorer</title>
     <meta name="description" content="Describe the options of a system and the rules between them with a form or as JSON, then count, list, explain and cover the valid combinations, in the browser." />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='7' height='7' fill='%232a6fdb'/%3E%3Crect x='9' width='7' height='7' fill='%232a6fdb'/%3E%3Crect y='9' width='7' height='7' fill='%232a6fdb'/%3E%3C/svg%3E" />
+    <!-- The colour of an installed window's title bar, for each scheme; a manifest can name only one. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#12151a" />
     <link rel="stylesheet" href="./src/style.css" />
     <script type="module" src="./src/main.ts"></script>
   </head>
   <body>
+    <div id="update-prompt" class="update-prompt" role="status" hidden>
+      <p>A new version of combinatrix is available.</p>
+      <button type="button" id="update-now">Update and reload</button>
+      <button type="button" id="update-later">Later</button>
+    </div>
+
     <header class="page-header">
       <h1>combinatrix</h1>
       <p>Describe the options of a system and the rules between them with a form or as JSON, then count, list, explain and cover the combinations that are valid. Everything runs in this page; nothing is sent anywhere.</p>
@@ -123,5 +131,9 @@
         </div>
       </section>
     </main>
+
+    <footer class="page-footer">
+      <p>Version <a id="build-link" href="https://github.com/ExaDev/combinatrix/releases">releases</a></p>
+    </footer>
   </body>
 </html>
