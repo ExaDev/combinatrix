@@ -15,13 +15,9 @@ permissions:
   contents: read
 
 jobs:
-  determine-runner:
-    uses: ./.github/workflows/determine-runner.yml
-
   commitlint:
     name: Commitlint
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,7 +29,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-      # Not wagoid/commitlint-github-action: it is a Docker container action, and the self-hosted fleet has no Docker daemon.
+      # Not wagoid/commitlint-github-action: this runs the commitlint and configuration the repository pins, with no container image to pull.
       - run: pnpm install --frozen-lockfile
       - name: Lint the commits of a pull request
         if: github.event_name == 'pull_request'
@@ -47,8 +43,7 @@ jobs:
 
   lint:
     name: Lint
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,8 +66,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,8 +87,7 @@ jobs:
 
   actionlint:
     name: Actionlint
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,18 +126,17 @@ jobs:
           echo "$tools" >> "$GITHUB_PATH"
       # With no file arguments actionlint lints every workflow in the repository's own .github/workflows.
       - name: Lint every workflow
-        run: actionlint -config-file .github/actionlint.yaml
+        run: actionlint
 
   zizmor:
     name: Zizmor
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # uvx rather than zizmorcore/zizmor-action: the action runs zizmor's container image and fails without a Docker daemon, which the fleet's runner pods do not have. setup-uv checks the uv download against its published checksum, and uv fetches a Python for zizmor's environment if the runner has none.
+      # uvx rather than zizmorcore/zizmor-action: the action runs zizmor's container image, where uvx runs a version pinned here with no image to pull. setup-uv checks the uv download against its published checksum, and uv fetches a Python for zizmor's environment if the runner has none.
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: 0.12.19
@@ -156,8 +148,7 @@ jobs:
   # The packed tarball, not the source tree, is what consumers install: this proves the published files and exports map work in a clean project on every Node line the package supports. The toolchain needs Node 22, so the package is built and packed on 22 and the consumer check runs on the Node under test.
   package:
     name: Package (Node ${{ matrix.node }})
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -273,8 +264,7 @@ jobs:
   # The explorer in site/ driven in a real browser: the form, the JSON view, the examples, share links, saved models, cancelling a long count, phone width and the colour schemes, which the unit tests cannot see. It runs only when what the site is built from changed, and decides that itself rather than through a path filter on the workflow or a separate job: a filtered workflow leaves a required check missing, where this job always reports, passing at once when nothing relevant changed, so Required Checks can depend on it.
   browser:
     name: Browser
-    needs: determine-runner
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -354,10 +344,10 @@ jobs:
 
   required-checks:
     name: Required Checks
-    needs: [determine-runner, commitlint, lint, typecheck, package, actionlint, zizmor, browser]
+    needs: [commitlint, lint, typecheck, package, actionlint, zizmor, browser]
     # Always runs, even if a dependency failed, so it reports that failure itself rather than being skipped: a required check that is silently absent blocks a PR indefinitely instead of failing it visibly.
     if: always()
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Fail if any required job failed or was cancelled
@@ -375,7 +365,7 @@ jobs:
     name: Release
     needs: [commitlint, lint, typecheck, package]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    # Deliberately a GitHub-hosted runner, not the resolved one: npm trusted publishing only works from GitHub-hosted runners, so the OIDC token exchange cannot happen on the self-hosted fleet or Blacksmith.
+    # npm trusted publishing exchanges an OIDC token that only a GitHub-hosted runner can, so this job must stay on one.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The deploy key lives in this environment, whose deployment branches are limited to main, so no other branch's workflow can read it.
@@ -445,9 +435,9 @@ jobs:
   # The site's footer links to the release a build came from only when a release tag is on the commit it is built from. A deploy of the commit that triggers a release runs before the tag exists and shows the commit, so a release starts the deploy again, from the tagged commit. A commit that releases nothing is deployed by the Pages workflow's own push trigger and needs no second deploy.
   redeploy-site:
     name: Redeploy site
-    needs: [determine-runner, release]
+    needs: release
     if: needs.release.outputs.released == 'true'
-    runs-on: ${{ fromJson(needs.determine-runner.outputs.selected-runner) }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: write # to start the Pages workflow
