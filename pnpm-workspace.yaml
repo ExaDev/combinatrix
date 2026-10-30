@@ -8,3 +8,4 @@ minimumReleaseAgeExclude:
   - "@exadev/eslint-config"
   - "trilean"
   - "trilean-regex"
+  - "@exadev/build-identity"

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "esModuleInterop": true,
@@ -27,5 +28,5 @@
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "examples", "scripts", "test", "*.config.ts", "site/vite.config.ts"]
+  "include": ["src", "examples", "scripts", "test", "*.config.ts", "site/vite.config.ts", "site/pwa-assets.config.ts"]
 }

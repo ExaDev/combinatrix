@@ -95,3 +95,11 @@ export function textInput(spec: TextSpec): HTMLInputElement {
 export function labelled(text: string, control: HTMLElement): HTMLLabelElement {
   return h("label", {}, h("span", {}, text), control);
 }
+
+/** The element of the page with this id, which must be of the given type: a markup change that drops or retypes it fails at once, naming the id. */
+export function byId<T extends HTMLElement>(id: string, type: new () => T): T {
+  const found = document.getElementById(id);
+  if (!(found instanceof type)) throw new Error(`#${id} is not a ${type.name}`);
+
+  return found;
+}
