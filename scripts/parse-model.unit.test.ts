@@ -10,6 +10,9 @@ import { accepts, definesModel, expectAgreement, model, nearMiss, ONE_PROPERTY, 
  * `isModelData` and `parseModel` against the published JSON Schema and against `defineModel`, over the seeded models and near misses the schema suite draws. The guard must agree with the schema exactly, and the parser must accept exactly what the schema accepts and `defineModel` accepts, building the model `defineModel` builds from the same definition written in code.
  */
 
+/** The keys a model file may carry beside its definition, which name and describe it and have no effect on the model. */
+const METADATA_KEYS = ["$schema", "id", "title", "description"] as const;
+
 /** Whether `parseModel` accepts the data, a refusal being a `ModelError` and nothing else. */
 function parses(data: unknown): boolean {
   try {
@@ -37,14 +40,14 @@ describe("isModelData", () => {
     expectAgreement(model, isModelData, accepts("Model"));
   });
 
-  it("agrees with the JSON Schema on a model that declares a \"$schema\", whatever it holds", ONE_PROPERTY, () => {
+  it("agrees with the JSON Schema on a model that declares metadata, whatever it holds", ONE_PROPERTY, () => {
     const declared = fc.oneof(fc.string(), fc.jsonValue());
     const validModel = accepts("Model");
     fc.assert(
-      fc.property(model, declared, (data, schemaValue) => {
-        const written: unknown = { $schema: schemaValue, ...data };
+      fc.property(model, fc.constantFrom(...METADATA_KEYS), declared, (data, key, value) => {
+        const written: unknown = { [key]: value, ...data };
         expect(isModelData(written), JSON.stringify(written)).toBe(validModel(written));
-        expect(isModelData(written), JSON.stringify(written)).toBe(typeof schemaValue === "string");
+        expect(isModelData(written), JSON.stringify(written)).toBe(typeof value === "string" && (key !== "id" || value !== ""));
       }),
       { seed: SEED, numRuns: RUNS },
     );
@@ -104,11 +107,11 @@ describe("parseModel", () => {
     );
   });
 
-  it("builds the same model whether or not the data declares a \"$schema\"", ONE_PROPERTY, () => {
+  it("builds the same model whether or not the data declares metadata", ONE_PROPERTY, () => {
     fc.assert(
-      fc.property(model, fc.string(), (data, schemaValue) => {
+      fc.property(model, fc.constantFrom(...METADATA_KEYS), fc.string({ minLength: 1 }), (data, key, value) => {
         const plain = parseModel(data);
-        const declared = parseModel({ $schema: schemaValue, ...data });
+        const declared = parseModel({ [key]: value, ...data });
         expect(declared.dimensions, JSON.stringify(data)).toEqual(plain.dimensions);
         expect(declared.rules, JSON.stringify(data)).toEqual(plain.rules);
         expect(collect(declared)).toEqual(collect(plain));
