@@ -1,3 +1,10 @@
+## [2.2.0](https://github.com/ExaDev/combinatrix/compare/v2.1.0...v2.2.0) (2026-10-30)
+
+### Features
+
+* **model:** accept an id, a title and a description in model data ([8af409c](https://github.com/ExaDev/combinatrix/commit/8af409c63cf1623b9800587cbb0ea3783a6260af))
+* **site:** keep a model's id, and ask before one with the same id replaces another ([360a0f2](https://github.com/ExaDev/combinatrix/commit/360a0f2668544c5493555ceac0dbedbfcdfcd4be))
+
 ## [2.1.0](https://github.com/ExaDev/combinatrix/compare/v2.0.3...v2.1.0) (2026-10-30)
 
 ### Features
