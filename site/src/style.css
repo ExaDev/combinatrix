@@ -83,10 +83,12 @@ main {
   }
 }
 
+/* The name is one word that cannot wrap, so its size is held to the width of the window as well as to the text size: enlarged text would otherwise make the page wider than a small phone. */
 h1 {
   margin: 24px 0 8px;
   font-family: var(--mono);
-  font-size: 1.75rem;
+  font-size: min(1.75rem, 11vw);
+  overflow-wrap: anywhere;
 }
 
 h2 {
@@ -200,6 +202,14 @@ button,
   input[type="number"],
   summary {
     min-height: var(--touch-target);
+  }
+
+  /* Safari on a phone zooms the page to a field whose text is under 16 CSS pixels when the field is focused, and leaves it zoomed. */
+  textarea,
+  input[type="text"],
+  input[type="number"],
+  select {
+    font-size: max(1em, 16px);
   }
 }
 
