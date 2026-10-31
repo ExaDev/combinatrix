@@ -44,6 +44,9 @@ test.describe('layout', () => {
   });
 });
 
+/** The least size of the text of a field on a touch screen, in CSS pixels: under it Safari zooms the page when the field is focused. */
+const MINIMUM_FIELD_TEXT = 16;
+
 /** A window too short for the Run section to fit in, so that it is taller than the window. */
 const SHORT = { width: 1400, height: 500 };
 
@@ -86,5 +89,30 @@ test.describe('width', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const longest = await explorer.id('example').evaluate((select) => (select instanceof HTMLSelectElement ? [...select.options].map((option) => option.text.length).reduce((most, length) => Math.max(most, length), 0) : 0));
     expect(longest).toBeGreaterThan(0);
+  });
+
+  test('has nothing wider than the window when the text is enlarged to twice its size, on a small phone', async ({ page }) => {
+    await page.setViewportSize(SMALLEST);
+    await Explorer.open(page);
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '200%';
+    });
+
+    await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+
+  test('keeps a field at 16 pixels or more on a touch screen, so that Safari does not zoom the page to it', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: SMALLEST, isMobile: true, hasTouch: true });
+    const page = await context.newPage();
+    await Explorer.open(page);
+
+    const small = await page.evaluate((least) => {
+      const fields = [...document.querySelectorAll('input[type="text"], input[type="number"], select, textarea')];
+
+      return fields.flatMap((field) => (field.getBoundingClientRect().width > 0 && parseFloat(getComputedStyle(field).fontSize) < least ? [field.tagName.toLowerCase()] : []));
+    }, MINIMUM_FIELD_TEXT);
+
+    expect(small).toEqual([]);
+    await context.close();
   });
 });
