@@ -710,6 +710,8 @@ Node 22 or later, pnpm. ESM only.
 
 CI runs the browser tests in `e2e/` as their own job whenever the site, the library source, the tests, the dependencies or the workflow itself change, and the job passes at once when none did, so the required check is never missing. It also runs `pnpm exec publint` and `pnpm exec attw --pack --profile esm-only` on the build, and installs the packed tarball into a scratch project on each supported Node line to exercise the public API and to compile a TypeScript consumer against it with no DOM library and no type packages, so the published types, and trilean's, depend on neither. trilean's tree types are inferred from zod schemas, and zod's own declarations name the `URL` global, so a consumer that checks library declarations (`skipLibCheck` off) needs the DOM library or a runtime's types for zod's sake; that diagnostic is the one the check allows.
 
+Pull requests merge themselves: arm auto-merge with `gh pr merge <number> --auto` and the merge queue rebases the pull request onto `main`, runs CI on the result, and merges it once the `Required Checks` job passes. The `main required checks` ruleset enforces that job, a linear history and the queue; the queue's CI runs on the `merge_group` event, so a job the ruleset requires has to run on it too.
+
 ## Releases
 
 Commits follow Conventional Commits and are checked by commitlint. Releases are cut by semantic-release from `main` in CI and published to npm with provenance through trusted publishing.
