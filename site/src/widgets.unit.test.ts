@@ -23,6 +23,11 @@ const SEED = 20_261_029;
 /** The time drawing one node and checking its controls may take a test, in milliseconds: at least two hundred times what the slowest kind takes per node on an idle machine, so a machine under heavy load still passes and only a drawing that stops terminating fails. */
 const NODE_BUDGET_MS = 2500;
 /** The nodes a test of one kind draws: the one made for the kind, and up to `NODES_PER_KIND` sampled ones. */
+/** The time one of the remaining tests, which draw and edit a form rather than a tree of nodes, may take in milliseconds: at least two hundred times what the slowest takes on an idle machine, so a machine under heavy load still passes and only a drawing that stops terminating fails. */
+const FORM_BUDGET_MS = 15_000;
+/** The options of a test that draws and edits one form. */
+const ONE_FORM = budgetFor(1, FORM_BUDGET_MS);
+
 const NODES_DRAWN = NODES_PER_KIND + 1;
 
 function contextOf(): TreeContext {
@@ -87,7 +92,7 @@ describe("every predicate kind of the schema has a widget", () => {
     }
   });
 
-  it("offers each kind in the menu of a node, and every kind of the schema is in the sampled set", () => {
+  it("offers each kind in the menu of a node, and every kind of the schema is in the sampled set", ONE_FORM, () => {
     const drawn = predicateNode(contextOf(), { path: ["n"], node: createPredicate("exists", ctxNames()), label: "n" });
     const options = [...(drawn.querySelector<HTMLSelectElement>('[data-field="n:kind"]')?.options ?? [])].map((option) => option.value);
 
@@ -126,14 +131,14 @@ describe("every expression kind of the schema has a widget", () => {
 describe("every dimension kind and rule form of the schema has a widget", () => {
   const dimensionOptions = [ChoiceDimensionSchema, FirstValidDimensionSchema];
 
-  it("lists the dimension kinds the model schema defines, and no other", () => {
+  it("lists the dimension kinds the model schema defines, and no other", ONE_FORM, () => {
     expect([...DIMENSION_KINDS].toSorted()).toEqual(dimensionOptions.map((option) => option.shape.kind.value).toSorted());
     const modelKinds = ModelSchema.shape.dimensions.element.options.map((option) => option.shape.kind.value);
 
     expect([...DIMENSION_KINDS].toSorted()).toEqual([...modelKinds].toSorted());
   });
 
-  it.each(DIMENSION_KINDS)("%s: is drawn with every control its schema keys need and no raw JSON box", (kind) => {
+  it.each(DIMENSION_KINDS)("%s: is drawn with every control its schema keys need and no raw JSON box", ONE_FORM, (kind) => {
     const option = dimensionOptions.find((candidate) => candidate.shape.kind.value === kind);
     if (option === undefined) throw new Error(`the schema has no ${kind} dimension`);
     expect(Object.keys(option.shape)).toContain(DOMAIN_KEYS[kind]);
@@ -153,7 +158,7 @@ describe("every dimension kind and rule form of the schema has a widget", () => 
     }
   });
 
-  it("draws each rule form of the schema, with the keys it has and the scope that can be added", () => {
+  it("draws each rule form of the schema, with the keys it has and the scope that can be added", ONE_FORM, () => {
     for (const option of RuleSchema.options) {
       const form = Object.keys(option.shape).find((key) => key === "requires" || key === "excludes" || key === "implies");
       if (form === undefined) throw new Error("a rule form of the schema has none of requires, excludes, implies");
@@ -182,7 +187,7 @@ describe("editing a JSON value", () => {
   };
   const COLLECTION = "rules.0.requires.collection";
 
-  it("draws a list and an object as nested editors, not JSON text", () => {
+  it("draws a list and an object as nested editors, not JSON text", ONE_FORM, () => {
     const harness = new Harness(MODEL);
 
     expect(harness.field(`${COLLECTION}:type`)).toHaveProperty("value", "list");
@@ -193,7 +198,7 @@ describe("editing a JSON value", () => {
     harness.destroy();
   });
 
-  it("adds, edits, moves and removes list items", () => {
+  it("adds, edits, moves and removes list items", ONE_FORM, () => {
     const harness = new Harness(MODEL);
     harness.click(`${COLLECTION}:add`);
     harness.type(`${COLLECTION}.2:value`, "c");
@@ -206,7 +211,7 @@ describe("editing a JSON value", () => {
     harness.destroy();
   });
 
-  it("changes the type of a value to the nearest value of the new type", () => {
+  it("changes the type of a value to the nearest value of the new type", ONE_FORM, () => {
     const harness = new Harness(MODEL);
     harness.choose(`${COLLECTION}.1.b:type`, "text");
 
@@ -221,7 +226,7 @@ describe("editing a JSON value", () => {
     harness.destroy();
   });
 
-  it("adds, renames, moves and removes object entries, and refuses a key another entry has", () => {
+  it("adds, renames, moves and removes object entries, and refuses a key another entry has", ONE_FORM, () => {
     const harness = new Harness(MODEL);
     const object = `${COLLECTION}.1`;
     harness.click(`${object}:add`);
@@ -243,7 +248,7 @@ describe("editing a JSON value", () => {
     harness.destroy();
   });
 
-  it("keeps a key with a dot apart from a path through two keys", () => {
+  it("keeps a key with a dot apart from a path through two keys", ONE_FORM, () => {
     const harness = new Harness({ dimensions: [], rules: [{ requires: { kind: "treeReference", key: { "a.b": 1, a: { b: 2 } } } }] });
     const fields = harness.fields();
 
@@ -253,7 +258,7 @@ describe("editing a JSON value", () => {
 });
 
 describe("editing a unit", () => {
-  it("adds a unit to a number, edits its symbols and exponents, and removes it", () => {
+  it("adds a unit to a number, edits its symbols and exponents, and removes it", ONE_FORM, () => {
     const harness = new Harness({ dimensions: [], rules: [{ requires: { kind: "compare", op: "gt", left: { kind: "numberLiteral", value: 1 }, right: { kind: "numberLiteral", value: 2 } } }] });
     const unit = "rules.0.requires.left.unit";
     harness.click(`${unit}:add`);
@@ -273,7 +278,7 @@ describe("editing a unit", () => {
 });
 
 describe("building the kinds the library refuses", () => {
-  it("builds a fold with a filter and each combiner, a call with arguments and a lookup, all through controls", () => {
+  it("builds a fold with a filter and each combiner, a call with arguments and a lookup, all through controls", ONE_FORM, () => {
     const harness = new Harness({ dimensions: [{ kind: "choice", name: "d", values: [1] }], rules: [{ requires: { kind: "exists", operand: { kind: "reference", key: "d" } } }] });
     const operand = "rules.0.requires.operand";
     harness.choose(`${operand}:kind`, "fold");
