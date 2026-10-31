@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A merge queue runs the checks the ruleset requires again against the temporary `gh-readonly-queue/main/...` branch it builds for each entry. A required check that never reports on that branch is not treated as skipped: the entry times out and the pull request is dropped from the queue, so a repository with a queue needs this trigger. checks_requested is the only activity type the event has.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 # Cancels a superseded run when a branch or PR gets pushed to again. Scoped away from main so a merge landing mid-release never kills the release job, which runs solely on a push to main.
